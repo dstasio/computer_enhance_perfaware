@@ -139,8 +139,8 @@ int main(int args_count, char *args[])
 
             u8 mov_extra0 = eat_byte();
             u8 mod =   mov_extra0 >> 6;
-            u8 reg = ((mov_extra0 >> 3) & 0b111) | w | (0b11 << 3); // for the REG field, we always use a 'mod' of 0b11
-            u8 r_m = ((mov_extra0     ) & 0b111) | w | ( mod << 3);
+            u8 reg = ((mov_extra0 >> 3) & 0b111) |  w                         | (0b11 << 3); // for the REG field, we always use a 'mod' of 0b11
+            u8 r_m = ((mov_extra0     ) & 0b111) | (w & ((mod == 0b11) << 5)) | ( mod << 3);
 
 
 #if 0
