@@ -190,9 +190,22 @@ int main(int args_count, char *args[])
 
             u16 data = eat_byte();
             if (w)
-                data = data | (eat_byte() << 8);
+                data |= eat_byte() << 8;
 
             printf("mov %s, %d\n", register_table[reg], data);
+        }
+        else if ((instruction >> 2) == 0b101000) // memory to accumulator / accumulator to memory
+        {
+            u8 w         = (instruction     ) & 1;
+            u8 direction = (instruction >> 1) & 1;
+
+            u16 addr = eat_byte();
+            addr |= eat_byte() << 8;
+
+            if (direction)
+                printf("mov [%d], ax\n", addr);
+            else
+                printf("mov ax, [%d]\n", addr);
         }
         else
         {
