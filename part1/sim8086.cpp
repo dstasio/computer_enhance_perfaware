@@ -70,18 +70,36 @@ u8 eat_byte()
     return byte;
 };
 
+u8 peek_byte()
+{
+    return *instruction_pointer;
+};
 
 
-struct String_Buffer
+
+char *get_string_for_opcode(u8 op_code)
+{
+
+    if      (op_code == 0)
+        return "add";
+    else if (op_code == 0b101)
+        return "sub";
+    else if (op_code == 0b111)
+        return "cmp";
+    return 0;
+}
+
+struct R_M_String
 {
     char data[30];
+    char size[6];
 };
 
 #define arr_len(arr) (sizeof(arr)/sizeof((arr)[0]))
 // will advance instruction pointer by calling eat_byte when necessary
-String_Buffer do_mod_r_m(u8 mod, u8 r_m, u8 w)
+R_M_String do_mod_r_m(u8 mod, u8 r_m, u8 w)
 {
-    String_Buffer result = {};
+    R_M_String result = {};
 
     w = w << 3;
     if (mod == 0b11)
@@ -113,9 +131,40 @@ String_Buffer do_mod_r_m(u8 mod, u8 r_m, u8 w)
         if ((mod) && (r_m == 0b110))
             memory_address_string = "bp";
         sprintf_s(result.data, arr_len(result.data), "[%s%s%s]", memory_address_string, (memory_address_string[0] && disp_string[0]) ? " + " : "", disp_string);
+        sprintf_s(result.size, arr_len(result.size), "%s", (w) ? "word " : "byte ");
     }
 
     return result;
+}
+
+
+// will advance instruction pointer by calling eat_byte when necessary
+void do_d_w_mod_reg_rm(u8 instruction, char *op)
+{
+    u8 w      = (instruction & 1) << 3;
+    u8 d_flag = (instruction >> 1) & 1;
+    d_flag = ((d_flag     ) |
+              (d_flag << 1) |
+              (d_flag << 2) |
+              (d_flag << 3));
+    u8 inv_d_flag = 0b111111 - d_flag;
+
+    u8 mov_extra0 = eat_byte();
+    u8 mod =   mov_extra0 >> 6;
+    u8 reg = ((mov_extra0 >> 3) & 0b111) | w;
+    u8 r_m = ((mov_extra0     ) & 0b111);
+
+
+    R_M_String r_m_string = do_mod_r_m(mod, r_m, w >> 3);
+    if (d_flag)
+        printf("%s %s, %s\n", op, register_table[reg], r_m_string.data);
+    else
+        printf("%s %s, %s\n", op, r_m_string.data, register_table[reg]);
+}
+
+// will advance instruction pointer by calling eat_byte when necessary
+void do_s_w_mod_rm_disp_data(u8 instruction, char *op, bool print_size)
+{
 }
 
 int main(int args_count, char *args[])
@@ -141,31 +190,31 @@ int main(int args_count, char *args[])
 
     instruction_pointer = instruction_start;
 
-    printf("bits 16\n");
+    printf("bits 16\n\n");
     while (instruction_pointer < instruction_end) {
         u8 instruction = eat_byte();
-        if (((instruction >> 2) & 0b111111) == 0b100010)
+        if ((instruction >> 2) == 0b100010)     // mov register/memory to/from register
         {
-            u8 w      = (instruction & 1) << 3;
-            u8 d_flag = (instruction >> 1) & 1;
-            d_flag = ((d_flag     ) |
-                      (d_flag << 1) |
-                      (d_flag << 2) |
-                      (d_flag << 3));
-            u8 inv_d_flag = 0b111111 - d_flag;
-
-            u8 mov_extra0 = eat_byte();
-            u8 mod =   mov_extra0 >> 6;
-            u8 reg = ((mov_extra0 >> 3) & 0b111) | w;
-            u8 r_m = ((mov_extra0     ) & 0b111);
-
-
-            String_Buffer r_m_string = do_mod_r_m(mod, r_m, w >> 3);
-            if (d_flag)
-                printf("mov %s, %s\n", register_table[reg], r_m_string.data);
-            else
-                printf("mov %s, %s\n", r_m_string.data, register_table[reg]);
+            do_d_w_mod_reg_rm(instruction, "mov");
         }
+        else if (((instruction >> 2) & 0b110001) == 0)
+        {
+            // 0b000000 == add  reg/memory with register to either
+            // 0b001010 == sub  reg/memory and register to either
+            // 0b001110 == cmp  register/memory and register
+            u8    op_code = (instruction >> 3) & 0b111;
+            char *op      = get_string_for_opcode(op_code);
+
+            if (op)
+                do_d_w_mod_reg_rm(instruction, op);
+            else
+            {
+                printf("unknown op: register/memory to/from register   --> ");
+                print_binary(instruction);
+                printf("\n");
+            }
+        }
+
         else if ((instruction >> 1) == 0b1100011) // mov immediate to register/memory
         {
             u8 w          = (instruction & 1);
@@ -175,7 +224,7 @@ int main(int args_count, char *args[])
             u8 mod = mov_extra0 >> 6;
             u8 r_m = mov_extra0 & 0b111;
 
-            String_Buffer r_m_string = do_mod_r_m(mod, r_m, w);
+            R_M_String r_m_string = do_mod_r_m(mod, r_m, w);
 
             u16 data = eat_byte();
             if (w)
@@ -183,6 +232,45 @@ int main(int args_count, char *args[])
 
             printf("mov %s, %s%d\n", r_m_string.data, (w) ? "word " : "byte ", data);
         }
+        else if ((instruction >> 2) == 0b100000)
+        {
+            u8    op_code = (peek_byte() >> 3) & 0b111;
+            char *op      = get_string_for_opcode(op_code);
+
+            if (!op)
+            {
+                printf("unknown op: register/memory to/from register   --> ");
+                print_binary(instruction);
+                printf("\n");
+            }
+            else
+            {
+                u8 w          = (instruction     ) & 1;
+                u8 s          = (instruction >> 1) & 1;
+
+                u8 mov_extra0 = eat_byte();
+
+                u8 mod = mov_extra0 >> 6;
+                u8 r_m = mov_extra0 & 0b111;
+
+                R_M_String r_m_string = do_mod_r_m(mod, r_m, w);
+
+                s16 data;
+                if (!s && w)
+                {
+                    data = eat_byte();
+                    data = data | (eat_byte() << 8);
+                }
+                else
+                    data = (s16)eat_byte();
+
+                if (s)
+                    printf("%s %s%s, %d\n", op, (r_m_string.data[0] == '[') ? r_m_string.size : "", r_m_string.data, data);
+                else
+                    printf("%s %s%s, %u\n", op, (r_m_string.data[0] == '[') ? r_m_string.size : "", r_m_string.data, data);
+            }
+        }
+
         else if ((instruction >> 4) == 0b1011)    // mov immediate to register
         {
             u8 w   = (instruction & 0b1000);
@@ -194,6 +282,7 @@ int main(int args_count, char *args[])
 
             printf("mov %s, %d\n", register_table[reg], data);
         }
+
         else if ((instruction >> 2) == 0b101000) // memory to accumulator / accumulator to memory
         {
             u8 w         = (instruction     ) & 1;
@@ -207,6 +296,42 @@ int main(int args_count, char *args[])
             else
                 printf("mov ax, [%d]\n", addr);
         }
+
+        else if (((instruction >> 1) & 0b1100011) == 0b10)
+        {
+            // 0b0000010 == add immediate to accumulator
+            // 0b0010110 == sub immediate from accumulator
+            // 0b0011110 == cmp immediate with accumulator
+            u8    op_code = (instruction >> 3) & 0b111;
+            char *op      = get_string_for_opcode(op_code);
+
+            if (!op)
+            {
+                printf("unknown op: register/memory to/from register   --> ");
+                print_binary(instruction);
+                printf("\n");
+            }
+            else
+            {
+                u8 w = instruction & 1;
+
+                s16 data;
+                if (w)
+                {
+                    data = (s16)eat_byte();
+                    data = data | (eat_byte() << 8);
+                }
+                else
+                {
+                    u8 b = eat_byte();
+                    data = *((s8*)&b);
+                }
+
+
+                printf("%s %s, %d\n", op, (w) ? "ax" : "al", data);
+            }
+        }
+
         else
         {
             printf("unknown: %x    ", instruction);
