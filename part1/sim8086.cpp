@@ -157,10 +157,10 @@ int main(int args_count, char *args[])
             u8 mov_extra0 = eat_byte();
             u8 mod =   mov_extra0 >> 6;
             u8 reg = ((mov_extra0 >> 3) & 0b111) | w;
-            u8 r_m = ((mov_extra0     ) & 0b111) | w;
+            u8 r_m = ((mov_extra0     ) & 0b111);
 
 
-            String_Buffer r_m_string = do_mod_r_m(mod, r_m & 0b111, w >> 3);
+            String_Buffer r_m_string = do_mod_r_m(mod, r_m, w >> 3);
             if (d_flag)
                 printf("mov %s, %s\n", register_table[reg], r_m_string.data);
             else
@@ -168,12 +168,20 @@ int main(int args_count, char *args[])
         }
         else if ((instruction >> 1) == 0b1100011) // mov immediate to register/memory
         {
-            u8 w          = (instruction & 1) << 3;
+            u8 w          = (instruction & 1);
 
             u8 mov_extra0 = eat_byte();
 
             u8 mod = mov_extra0 >> 6;
             u8 r_m = mov_extra0 & 0b111;
+
+            String_Buffer r_m_string = do_mod_r_m(mod, r_m, w);
+
+            u16 data = eat_byte();
+            if (w)
+                data = data | (eat_byte() << 8);
+
+            printf("mov %s, %s%d\n", r_m_string.data, (w) ? "word " : "byte ", data);
         }
         else if ((instruction >> 4) == 0b1011)    // mov immediate to register
         {
