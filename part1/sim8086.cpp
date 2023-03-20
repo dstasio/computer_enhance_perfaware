@@ -262,7 +262,7 @@ int main(int args_count, char *args[])
                     data = data | (eat_byte() << 8);
                 }
                 else
-                    data = (s16)eat_byte();
+                    data = (s8)eat_byte();
 
                 if (s)
                     printf("%s %s%s, %d\n", op, (r_m_string.data[0] == '[') ? r_m_string.size : "", r_m_string.data, data);
@@ -323,8 +323,7 @@ int main(int args_count, char *args[])
                 }
                 else
                 {
-                    u8 b = eat_byte();
-                    data = *((s8*)&b);
+                    data = (s8)eat_byte();
                 }
 
 
