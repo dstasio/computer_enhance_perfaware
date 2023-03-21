@@ -331,6 +331,83 @@ int main(int args_count, char *args[])
             }
         }
 
+        else if ((instruction >> 4) == 0b0111) // jumps
+        {
+            char *jump_str = 0;
+            u8 jump_code = instruction & 0b1111;
+                 if (jump_code == 0b0101)
+                jump_str = "jne";
+            else if (jump_code == 0b0100)
+                jump_str = "je";
+            else if (jump_code == 0b1100)
+                jump_str = "jl";
+            else if (jump_code == 0b1110)
+                jump_str = "jle";
+            else if (jump_code == 0b0010)
+                jump_str = "jb";
+            else if (jump_code == 0b0110)
+                jump_str = "jbe";
+            else if (jump_code == 0b1010)
+                jump_str = "jp";
+            else if (jump_code == 0b0000)
+                jump_str = "jo";
+            else if (jump_code == 0b1000)
+                jump_str = "js";
+            else if (jump_code == 0b1101)
+                jump_str = "jnl";
+            else if (jump_code == 0b1111)
+                jump_str = "jg";
+            else if (jump_code == 0b0011)
+                jump_str = "jnb";
+            else if (jump_code == 0b0111)
+                jump_str = "ja";
+            else if (jump_code == 0b1011)
+                jump_str = "jnp";
+            else if (jump_code == 0b0001)
+                jump_str = "jno";
+            else if (jump_code == 0b1001)
+                jump_str = "jns";
+
+            if (!jump_str)
+            {
+                printf("unknown jump instruction: ");
+                print_binary(instruction);
+                printf("\n");
+            }
+            else
+            {
+                s8 ip_inc8 = eat_byte();
+                ip_inc8 += 2;
+                printf("%s $%+d\n", jump_str, ip_inc8);
+            }
+        }
+        else if ((instruction >> 4) == 0b1110) // loops
+        {
+            char *loop_str = 0;
+            u8 loop_code = instruction & 0b1111;
+                 if (loop_code == 0b0010)
+                loop_str = "loop";
+            else if (loop_code == 0b0001)
+                loop_str = "loopz";
+            else if (loop_code == 0b0000)
+                loop_str = "loopnz";
+            else if (loop_code == 0b0011)
+                loop_str = "jcxz";
+
+            if (!loop_str)
+            {
+                printf("unknown loop instruction: ");
+                print_binary(instruction);
+                printf("\n");
+            }
+            else
+            {
+                s8 ip_inc8 = eat_byte();
+                ip_inc8 += 2;
+                printf("%s $%+d\n", loop_str, ip_inc8);
+            }
+        }
+
         else
         {
             printf("unknown: %x    ", instruction);
