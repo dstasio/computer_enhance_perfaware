@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <cstring>
 
 #if SIM86_DEBUG
 #define assert(x) if (!(x)) { __debugbreak(); }
@@ -37,7 +38,7 @@ char *memory_locations[] = {
     "bx",           // 0b 111
 };
 
-char *register_table[] = {
+char *register_name_table[] = {
                       //    W REG/R_M
     "al",             // 0b 0 000
     "cl",             // 0b 0 001
@@ -58,9 +59,56 @@ char *register_table[] = {
     "di",             // 0b 1 111
 };
 
+
+enum Register_Index
+{
+    ax,
+    bx,
+    cx,
+    dx,
+
+    sp,
+    bp,
+    di,
+    si,
+};
+
+struct Register_Pointer
+{
+    Register_Index index;
+    u16            mask;
+    u16            shift;
+};
+
+Register_Pointer register_pointer_table[] = {
+                      //    W REG/R_M
+    { ax, 0x00FF, 0 },   // 0b 0 000
+    { bx, 0x00FF, 0 },   // 0b 0 001
+    { cx, 0x00FF, 0 },   // 0b 0 010
+    { dx, 0x00FF, 0 },   // 0b 0 011
+    { ax, 0xFF00, 8 },   // 0b 0 100
+    { bx, 0xFF00, 8 },   // 0b 0 101
+    { cx, 0xFF00, 8 },   // 0b 0 110
+    { dx, 0xFF00, 8 },   // 0b 0 111
+
+    { ax, 0xFFFF, 0 },   // 0b 1 000
+    { cx, 0xFFFF, 0 },   // 0b 1 001
+    { dx, 0xFFFF, 0 },   // 0b 1 010
+    { bx, 0xFFFF, 0 },   // 0b 1 011
+    { sp, 0xFFFF, 0 },   // 0b 1 100
+    { bp, 0xFFFF, 0 },   // 0b 1 101
+    { si, 0xFFFF, 0 },   // 0b 1 110
+    { di, 0xFFFF, 0 },   // 0b 1 111
+};
+
+
+// =========================================
+// State variables
+//
 static u8 *instruction_pointer;
 static u8 *instruction_start;
 static u8 *instruction_end;
+static u16 registers[8];
 
 u8 eat_byte()
 {
@@ -89,25 +137,30 @@ char *get_string_for_opcode(u8 op_code)
     return 0;
 }
 
-struct R_M_String
+struct Mod_R_M_Result
 {
-    char data[30];
-    char size[6];
+    bool             is_memory;
+    Register_Pointer register_pointer;
+
+    char string_data[30];
+    char string_size[6];
 };
 
 #define arr_len(arr) (sizeof(arr)/sizeof((arr)[0]))
 // will advance instruction pointer by calling eat_byte when necessary
-R_M_String do_mod_r_m(u8 mod, u8 r_m, u8 w)
+Mod_R_M_Result do_mod_r_m(u8 mod, u8 r_m, u8 w)
 {
-    R_M_String result = {};
+    Mod_R_M_Result result = {};
 
     w = w << 3;
     if (mod == 0b11)
     {
-        sprintf_s(result.data, arr_len(result.data), "%s", register_table[r_m | w]);
+        sprintf_s(result.string_data, arr_len(result.string_data), "%s", register_name_table[r_m | w]);
+        result.register_pointer = register_pointer_table[r_m | w];
     }
     else 
     {
+        result.is_memory = true;
 #define MAX_MEMORY_ADDRESS_STRING_LENGTH 9
         s16  disp                                          = 0;
         char disp_string[MAX_MEMORY_ADDRESS_STRING_LENGTH] = {};
@@ -130,8 +183,8 @@ R_M_String do_mod_r_m(u8 mod, u8 r_m, u8 w)
         char *memory_address_string = memory_locations[r_m];
         if ((mod) && (r_m == 0b110))
             memory_address_string = "bp";
-        sprintf_s(result.data, arr_len(result.data), "[%s%s%s]", memory_address_string, (memory_address_string[0] && disp_string[0]) ? " + " : "", disp_string);
-        sprintf_s(result.size, arr_len(result.size), "%s", (w) ? "word " : "byte ");
+        sprintf_s(result.string_data, arr_len(result.string_data), "[%s%s%s]", memory_address_string, (memory_address_string[0] && disp_string[0]) ? " + " : "", disp_string);
+        sprintf_s(result.string_size, arr_len(result.string_size), "%s", (w) ? "word " : "byte ");
     }
 
     return result;
@@ -155,11 +208,34 @@ void do_d_w_mod_reg_rm(u8 instruction, char *op)
     u8 r_m = ((mov_extra0     ) & 0b111);
 
 
-    R_M_String r_m_string = do_mod_r_m(mod, r_m, w >> 3);
+    Mod_R_M_Result r_m_result = do_mod_r_m(mod, r_m, w >> 3);
     if (d_flag)
-        printf("%s %s, %s\n", op, register_table[reg], r_m_string.data);
+        printf("%s %s, %s", op, register_name_table[reg], r_m_result.string_data);
     else
-        printf("%s %s, %s\n", op, r_m_string.data, register_table[reg]);
+        printf("%s %s, %s", op, r_m_result.string_data, register_name_table[reg]);
+
+
+    if ((strcmp(op, "mov") == 0) && (!r_m_result.is_memory)) {
+        auto   dest_reg = d_flag ? register_pointer_table[reg] : r_m_result.register_pointer;
+        auto source_reg = d_flag ? r_m_result.register_pointer : register_pointer_table[reg];
+        assert((dest_reg.mask >> dest_reg.shift) == (source_reg.mask >> source_reg.shift));
+
+        u16 *  dest_reg_ptr = &registers[  dest_reg.index];
+        u16 *source_reg_ptr = &registers[source_reg.index];
+
+        u16 prev_register_data = *dest_reg_ptr;
+
+        u16 data = ((*source_reg_ptr) >> source_reg.shift) & source_reg.mask;
+        data <<= dest_reg.shift;
+        data  &= dest_reg.mask;
+        (*dest_reg_ptr) &= ~dest_reg.mask;
+        (*dest_reg_ptr) |= data;
+
+        printf("  ; %s:0x%x -> 0x%x\n", d_flag ? register_name_table[reg] : r_m_result.string_data, prev_register_data, *dest_reg_ptr);
+    }
+    else {
+        printf("\n");
+    }
 }
 
 // will advance instruction pointer by calling eat_byte when necessary
@@ -224,13 +300,13 @@ int main(int args_count, char *args[])
             u8 mod = mov_extra0 >> 6;
             u8 r_m = mov_extra0 & 0b111;
 
-            R_M_String r_m_string = do_mod_r_m(mod, r_m, w);
+            Mod_R_M_Result r_m_result = do_mod_r_m(mod, r_m, w);
 
             u16 data = eat_byte();
             if (w)
                 data = data | (eat_byte() << 8);
 
-            printf("mov %s, %s%d\n", r_m_string.data, (w) ? "word " : "byte ", data);
+            printf("mov %s, %s%d\n", r_m_result.string_data, (w) ? "word " : "byte ", data);
         }
         else if ((instruction >> 2) == 0b100000)
         {
@@ -253,7 +329,7 @@ int main(int args_count, char *args[])
                 u8 mod = mov_extra0 >> 6;
                 u8 r_m = mov_extra0 & 0b111;
 
-                R_M_String r_m_string = do_mod_r_m(mod, r_m, w);
+                Mod_R_M_Result r_m_result = do_mod_r_m(mod, r_m, w);
 
                 s16 data;
                 if (!s && w)
@@ -265,9 +341,9 @@ int main(int args_count, char *args[])
                     data = (s8)eat_byte();
 
                 if (s)
-                    printf("%s %s%s, %d\n", op, (r_m_string.data[0] == '[') ? r_m_string.size : "", r_m_string.data, data);
+                    printf("%s %s%s, %d\n", op, (r_m_result.string_data[0] == '[') ? r_m_result.string_size : "", r_m_result.string_data, data);
                 else
-                    printf("%s %s%s, %u\n", op, (r_m_string.data[0] == '[') ? r_m_string.size : "", r_m_string.data, data);
+                    printf("%s %s%s, %u\n", op, (r_m_result.string_data[0] == '[') ? r_m_result.string_size : "", r_m_result.string_data, data);
             }
         }
 
@@ -280,7 +356,18 @@ int main(int args_count, char *args[])
             if (w)
                 data |= eat_byte() << 8;
 
-            printf("mov %s, %d\n", register_table[reg], data);
+            printf("mov %s, %d", register_name_table[reg], data);
+
+            auto register_pointer   =  register_pointer_table[reg];
+            u16 *dest_register      = &registers[register_pointer.index];
+            u16  prev_register_data = *dest_register;
+
+            data <<= register_pointer.shift;
+            data  &= register_pointer.mask;
+            (*dest_register) &= ~register_pointer.mask;
+            (*dest_register) |= data;
+
+            printf("  ; %s:0x%x -> 0x%x\n", register_name_table[reg], prev_register_data, *dest_register);
         }
 
         else if ((instruction >> 2) == 0b101000) // memory to accumulator / accumulator to memory
