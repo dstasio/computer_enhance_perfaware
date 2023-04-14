@@ -38,7 +38,7 @@ char *memory_locations[] = {
     "bx",           // 0b 111
 };
 
-char *register_name_table[] = {
+char *_register_name_table[] = {
                       //    W REG/R_M
     "al",             // 0b 0 000
     "cl",             // 0b 0 001
@@ -103,6 +103,7 @@ struct Register_Pointer
     Register_Index index;
     u16            mask;
     u16            shift;
+    char           name[3];
 };
 
 enum Decoded_Op
@@ -125,24 +126,24 @@ static char *op_names[] = {
 };
 
 Register_Pointer register_pointer_table[] = {
-                         //    W REG/R_M
-    { ax, 0x00FF, 0 },   // 0b 0 000
-    { cx, 0x00FF, 0 },   // 0b 0 001
-    { dx, 0x00FF, 0 },   // 0b 0 010
-    { bx, 0x00FF, 0 },   // 0b 0 011
-    { ax, 0xFF00, 8 },   // 0b 0 100
-    { cx, 0xFF00, 8 },   // 0b 0 101
-    { dx, 0xFF00, 8 },   // 0b 0 110
-    { bx, 0xFF00, 8 },   // 0b 0 111
+                               //    W REG/R_M
+    { ax, 0x00FF, 0, "al" },   // 0b 0 000
+    { cx, 0x00FF, 0, "cl" },   // 0b 0 001
+    { dx, 0x00FF, 0, "dl" },   // 0b 0 010
+    { bx, 0x00FF, 0, "bl" },   // 0b 0 011
+    { ax, 0xFF00, 8, "ah" },   // 0b 0 100
+    { cx, 0xFF00, 8, "ch" },   // 0b 0 101
+    { dx, 0xFF00, 8, "dh" },   // 0b 0 110
+    { bx, 0xFF00, 8, "bh" },   // 0b 0 111
 
-    { ax, 0xFFFF, 0 },   // 0b 1 000
-    { cx, 0xFFFF, 0 },   // 0b 1 001
-    { dx, 0xFFFF, 0 },   // 0b 1 010
-    { bx, 0xFFFF, 0 },   // 0b 1 011
-    { sp, 0xFFFF, 0 },   // 0b 1 100
-    { bp, 0xFFFF, 0 },   // 0b 1 101
-    { si, 0xFFFF, 0 },   // 0b 1 110
-    { di, 0xFFFF, 0 },   // 0b 1 111
+    { ax, 0xFFFF, 0, "ax" },   // 0b 1 000
+    { cx, 0xFFFF, 0, "cx" },   // 0b 1 001
+    { dx, 0xFFFF, 0, "dx" },   // 0b 1 010
+    { bx, 0xFFFF, 0, "bx" },   // 0b 1 011
+    { sp, 0xFFFF, 0, "sp" },   // 0b 1 100
+    { bp, 0xFFFF, 0, "bp" },   // 0b 1 101
+    { si, 0xFFFF, 0, "si" },   // 0b 1 110
+    { di, 0xFFFF, 0, "di" },   // 0b 1 111
 };
 
 Decoded_Op decode_op(u8 op_code)
@@ -207,13 +208,67 @@ u8 peek_byte()
     return *instruction_pointer;
 };
 
+void exec_op(Decoded_Op op, Register_Pointer *dest_reg_ptr, u16 data) {
+    u16 *dest_reg          = &registers[  dest_reg_ptr->index];
+    u16 prev_register_data = *dest_reg;
+
+    u16 result = ((*dest_reg) >> dest_reg_ptr->shift) & dest_reg_ptr->mask;
+    bool do_flags = true;
+    u16 prev_flags = flags_register;
+    switch(op) {
+        case OP_MOV: {
+            result = data;
+            do_flags = false;
+        } break;
+
+        case OP_ADD: result += data; break;
+        case OP_SUB:
+        case OP_CMP: result -= data; break;
+    }
+    result <<= dest_reg_ptr->shift;
+    result  &= dest_reg_ptr->mask;
+
+    if (op != OP_CMP) {
+        (*dest_reg) &= ~dest_reg_ptr->mask;
+        (*dest_reg) |= result;
+    }
+
+    if (do_flags) {
+        auto high_bit = first_bit_set_high(dest_reg_ptr->mask);
+
+        flags_register &= (~(1 << ZF)) & (~(1 << SF));
+        flags_register |=  (result == 0)             << ZF;
+        flags_register |= ((result >> high_bit) & 1) << SF;
+    }
+
+    printf("  ; %s:0x%x -> 0x%x", dest_reg_ptr->name, prev_register_data, *dest_reg);
+
+    if (do_flags) {
+        char curr_flags_str[FLAGS_COUNT + 1] = {};
+        char prev_flags_str[FLAGS_COUNT + 1] = {};
+
+        fill_flags_string(flags_register, curr_flags_str);
+        fill_flags_string(prev_flags, prev_flags_str);
+        printf("   flags: %s -> %s", prev_flags_str, curr_flags_str);
+    }
+}
+
+void exec_op(Decoded_Op op, Register_Pointer *dest_reg_ptr, Register_Pointer *source_reg_ptr) {
+    assert((dest_reg_ptr->mask >> dest_reg_ptr->shift) == (source_reg_ptr->mask >> source_reg_ptr->shift));
+
+    u16 *source_reg = &registers[source_reg_ptr->index];
+    u16 data        = ((*source_reg) >> source_reg_ptr->shift) & source_reg_ptr->mask;
+
+    exec_op(op, dest_reg_ptr, data);
+}
 
 
 struct Mod_R_M_Result
 {
-    bool             is_memory;
-    Register_Pointer register_pointer;
+    bool              is_memory;
+    Register_Pointer *register_pointer;
 
+    // @todo: when is_memory == false, string_data = "" and use register_pointer.name
     char string_data[30];
     char string_size[6];
 };
@@ -227,8 +282,8 @@ Mod_R_M_Result do_mod_r_m(u8 mod, u8 r_m, u8 w)
     w = w << 3;
     if (mod == 0b11)
     {
-        sprintf_s(result.string_data, arr_len(result.string_data), "%s", register_name_table[r_m | w]);
-        result.register_pointer = register_pointer_table[r_m | w];
+        sprintf_s(result.string_data, arr_len(result.string_data), "%s", register_pointer_table[r_m | w].name);
+        result.register_pointer = &register_pointer_table[r_m | w];
     }
     else 
     {
@@ -284,65 +339,18 @@ void do_d_w_mod_reg_rm(u8 instruction, Decoded_Op op)
 
     Mod_R_M_Result r_m_result = do_mod_r_m(mod, r_m, w >> 3);
     if (d_flag)
-        printf("%s %s, %s", op_str, register_name_table[reg], r_m_result.string_data);
+        printf("%s %s, %s", op_str, register_pointer_table[reg].name, r_m_result.string_data);
     else
-        printf("%s %s, %s", op_str, r_m_result.string_data, register_name_table[reg]);
+        printf("%s %s, %s", op_str, r_m_result.string_data, register_pointer_table[reg].name);
 
 
+    // exec
     if (!r_m_result.is_memory) {
-        auto   dest_reg_ptr = d_flag ? register_pointer_table[reg] : r_m_result.register_pointer;
-        auto source_reg_ptr = d_flag ? r_m_result.register_pointer : register_pointer_table[reg];
-        assert((dest_reg_ptr.mask >> dest_reg_ptr.shift) == (source_reg_ptr.mask >> source_reg_ptr.shift));
-
-        u16 *  dest_reg = &registers[  dest_reg_ptr.index];
-        u16 *source_reg = &registers[source_reg_ptr.index];
-
-        u16 prev_register_data = *dest_reg;
-
-        u16 data = ((*source_reg) >> source_reg_ptr.shift) & source_reg_ptr.mask;
-
-        u16 result = ((*dest_reg) >> dest_reg_ptr.shift) & dest_reg_ptr.mask;
-        bool do_flags = true;
-        u16 prev_flags = flags_register;
-        switch(op) {
-            case OP_MOV: {
-                result = data;
-                do_flags = false;
-            } break;
-
-            case OP_ADD: result += data; break;
-            case OP_SUB:
-            case OP_CMP: result -= data; break;
-        }
-        result <<= dest_reg_ptr.shift;
-        result  &= dest_reg_ptr.mask;
-
-        (*dest_reg) &= ~dest_reg_ptr.mask;
-        (*dest_reg) |= result;
-
-        if (do_flags) {
-            auto high_bit = first_bit_set_high(dest_reg_ptr.mask);
-
-            flags_register &= (~(1 << ZF)) & (~(1 << SF));
-            flags_register |=  (result == 0)             << ZF;
-            flags_register |= ((result >> high_bit) & 1) << SF;
-        }
-
-        printf("  ; %s:0x%x -> 0x%x", d_flag ? register_name_table[reg] : r_m_result.string_data, prev_register_data, *dest_reg);
-
-        if (do_flags) {
-            char curr_flags_str[FLAGS_COUNT + 1] = {};
-            char prev_flags_str[FLAGS_COUNT + 1] = {};
-
-            fill_flags_string(flags_register, curr_flags_str);
-            fill_flags_string(prev_flags, prev_flags_str);
-            printf("   flags: %s -> %s", prev_flags_str, curr_flags_str);
-        }
-        printf("\n");
+        auto   dest_reg_ptr = d_flag ? &register_pointer_table[reg] :  r_m_result.register_pointer;
+        auto source_reg_ptr = d_flag ?  r_m_result.register_pointer : &register_pointer_table[reg];
+        exec_op(op, dest_reg_ptr, source_reg_ptr);
     }
-    else {
-        printf("\n");
-    }
+    printf("\n");
 }
 
 // will advance instruction pointer by calling eat_byte when necessary
@@ -421,9 +429,9 @@ int main(int args_count, char *args[])
             auto op      = decode_op(op_code);
             auto op_str  = op_names[op];
 
-            if (!op_str)
+            if (op == OP_UNKNOWN)
             {
-                printf("unknown op: register/memory to/from register   --> ");
+                printf("unknown op: register/memory to register   --> ");
                 print_binary(instruction);
                 printf("\n");
             }
@@ -448,10 +456,18 @@ int main(int args_count, char *args[])
                 else
                     data = (s8)eat_byte();
 
-                if (s)
-                    printf("%s %s%s, %d\n", op_str, (r_m_result.string_data[0] == '[') ? r_m_result.string_size : "", r_m_result.string_data, data);
+                if (s) // signed
+                    printf("%s %s%s, %d", op_str, (r_m_result.is_memory) ? r_m_result.string_size : "", r_m_result.string_data, data);
                 else
-                    printf("%s %s%s, %u\n", op_str, (r_m_result.string_data[0] == '[') ? r_m_result.string_size : "", r_m_result.string_data, data);
+                    printf("%s %s%s, %u", op_str, (r_m_result.is_memory) ? r_m_result.string_size : "", r_m_result.string_data, data);
+
+                // exec
+                if (!r_m_result.is_memory) {
+                    auto   dest_reg_ptr = r_m_result.register_pointer;
+                    exec_op(op, dest_reg_ptr, data);
+                }
+
+                printf("\n");
             }
         }
 
@@ -464,9 +480,10 @@ int main(int args_count, char *args[])
             if (w)
                 data |= eat_byte() << 8;
 
-            printf("mov %s, %d", register_name_table[reg], data);
-
             auto register_pointer   =  register_pointer_table[reg];
+            printf("mov %s, %d", register_pointer.name, data);
+
+            // exec
             u16 *dest_register      = &registers[register_pointer.index];
             u16  prev_register_data = *dest_register;
 
@@ -475,7 +492,7 @@ int main(int args_count, char *args[])
             (*dest_register) &= ~register_pointer.mask;
             (*dest_register) |= data;
 
-            printf("  ; %s:0x%x -> 0x%x\n", register_name_table[reg], prev_register_data, *dest_register);
+            printf("  ; %s:0x%x -> 0x%x\n", register_pointer.name, prev_register_data, *dest_register);
         }
 
         else if ((instruction >> 2) == 0b101000) // memory to accumulator / accumulator to memory
