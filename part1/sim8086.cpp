@@ -81,15 +81,15 @@ struct Register_Pointer
 };
 
 Register_Pointer register_pointer_table[] = {
-                      //    W REG/R_M
+                         //    W REG/R_M
     { ax, 0x00FF, 0 },   // 0b 0 000
-    { bx, 0x00FF, 0 },   // 0b 0 001
-    { cx, 0x00FF, 0 },   // 0b 0 010
-    { dx, 0x00FF, 0 },   // 0b 0 011
+    { cx, 0x00FF, 0 },   // 0b 0 001
+    { dx, 0x00FF, 0 },   // 0b 0 010
+    { bx, 0x00FF, 0 },   // 0b 0 011
     { ax, 0xFF00, 8 },   // 0b 0 100
-    { bx, 0xFF00, 8 },   // 0b 0 101
-    { cx, 0xFF00, 8 },   // 0b 0 110
-    { dx, 0xFF00, 8 },   // 0b 0 111
+    { cx, 0xFF00, 8 },   // 0b 0 101
+    { dx, 0xFF00, 8 },   // 0b 0 110
+    { bx, 0xFF00, 8 },   // 0b 0 111
 
     { ax, 0xFFFF, 0 },   // 0b 1 000
     { cx, 0xFFFF, 0 },   // 0b 1 001
@@ -503,6 +503,16 @@ int main(int args_count, char *args[])
         }
 
     }
+
+    printf("\nFinal registers:\n");
+    printf("    ax: 0x%x (%d)\n", registers[ax], registers[ax]);
+    printf("    bx: 0x%x (%d)\n", registers[bx], registers[bx]);
+    printf("    cx: 0x%x (%d)\n", registers[cx], registers[cx]);
+    printf("    dx: 0x%x (%d)\n", registers[dx], registers[dx]);
+    printf("    sp: 0x%x (%d)\n", registers[sp], registers[sp]);
+    printf("    bp: 0x%x (%d)\n", registers[bp], registers[bp]);
+    printf("    si: 0x%x (%d)\n", registers[si], registers[si]);
+    printf("    di: 0x%x (%d)\n", registers[di], registers[di]);
 
     
     return 0;
