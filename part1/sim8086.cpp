@@ -70,6 +70,10 @@ enum Register_Index {
     bp,
     di,
     si,
+
+    ip,
+
+    REGISTER_COUNT,
 };
 
 enum Flags {
@@ -192,7 +196,7 @@ int first_bit_set_high(u64 value) {
 static u8 *instruction_pointer;
 static u8 *instruction_start;
 static u8 *instruction_end;
-static u16 registers[8];
+static u16 registers[REGISTER_COUNT];
 static u16 flags_register;
 
 u8 eat_byte()
@@ -200,6 +204,9 @@ u8 eat_byte()
     u8 byte = *instruction_pointer;
     instruction_pointer += 1;
     assert(instruction_pointer <= instruction_end);
+
+    registers[ip] += 1;
+
     return byte;
 };
 
@@ -241,7 +248,9 @@ void exec_op(Decoded_Op op, Register_Pointer *dest_reg_ptr, u16 data) {
         flags_register |= ((result >> high_bit) & 1) << SF;
     }
 
-    printf("  ; %s:0x%x -> 0x%x", dest_reg_ptr->name, prev_register_data, *dest_reg);
+    printf("\t; %s:0x%x -> 0x%x", dest_reg_ptr->name, prev_register_data, *dest_reg);
+
+    printf("\tip:0x%x", registers[ip]);
 
     if (do_flags) {
         char curr_flags_str[FLAGS_COUNT + 1] = {};
@@ -249,7 +258,7 @@ void exec_op(Decoded_Op op, Register_Pointer *dest_reg_ptr, u16 data) {
 
         fill_flags_string(flags_register, curr_flags_str);
         fill_flags_string(prev_flags, prev_flags_str);
-        printf("   flags: %s -> %s", prev_flags_str, curr_flags_str);
+        printf("\tflags: %s -> %s", prev_flags_str, curr_flags_str);
     }
 }
 
@@ -492,7 +501,7 @@ int main(int args_count, char *args[])
             (*dest_register) &= ~register_pointer.mask;
             (*dest_register) |= data;
 
-            printf("  ; %s:0x%x -> 0x%x\n", register_pointer.name, prev_register_data, *dest_register);
+            printf("\t; %s:0x%x -> 0x%x\tip:0x%x\n", register_pointer.name, prev_register_data, *dest_register, registers[ip]);
         }
 
         else if ((instruction >> 2) == 0b101000) // memory to accumulator / accumulator to memory
@@ -581,18 +590,14 @@ int main(int args_count, char *args[])
             else if (jump_code == 0b1001)
                 jump_str = "jns";
 
-            if (!jump_str)
-            {
-                printf("unknown jump instruction: ");
-                print_binary(instruction);
-                printf("\n");
-            }
-            else
-            {
-                s8 ip_inc8 = eat_byte();
-                ip_inc8 += 2;
-                printf("%s $%+d\n", jump_str, ip_inc8);
-            }
+            assert(jump_str);
+
+            s8 ip_inc8 = eat_byte();
+            ip_inc8 += 2;
+            printf("%s $%+d\n", jump_str, ip_inc8);
+
+
+            // exec
         }
         else if ((instruction >> 4) == 0b1110) // loops
         {
@@ -607,18 +612,10 @@ int main(int args_count, char *args[])
             else if (loop_code == 0b0011)
                 loop_str = "jcxz";
 
-            if (!loop_str)
-            {
-                printf("unknown loop instruction: ");
-                print_binary(instruction);
-                printf("\n");
-            }
-            else
-            {
-                s8 ip_inc8 = eat_byte();
-                ip_inc8 += 2;
-                printf("%s $%+d\n", loop_str, ip_inc8);
-            }
+            assert(loop_str);
+            s8 ip_inc8 = eat_byte();
+            ip_inc8 += 2;
+            printf("%s $%+d\n", loop_str, ip_inc8);
         }
 
         else
@@ -630,16 +627,22 @@ int main(int args_count, char *args[])
 
     }
 
-    printf("\nFinal registers:\n");
-    printf("    ax: 0x%x (%d)\n", registers[ax], registers[ax]);
-    printf("    bx: 0x%x (%d)\n", registers[bx], registers[bx]);
-    printf("    cx: 0x%x (%d)\n", registers[cx], registers[cx]);
-    printf("    dx: 0x%x (%d)\n", registers[dx], registers[dx]);
-    printf("    sp: 0x%x (%d)\n", registers[sp], registers[sp]);
-    printf("    bp: 0x%x (%d)\n", registers[bp], registers[bp]);
-    printf("    si: 0x%x (%d)\n", registers[si], registers[si]);
-    printf("    di: 0x%x (%d)\n", registers[di], registers[di]);
+    char final_flags_str[FLAGS_COUNT + 1] = {};
+    fill_flags_string(flags_register, final_flags_str);
 
+    printf("\nFinal registers:\n");
+    if (registers[ax]) printf("    ax: 0x%04x (%d)\n", registers[ax], registers[ax]);
+    if (registers[bx]) printf("    bx: 0x%04x (%d)\n", registers[bx], registers[bx]);
+    if (registers[cx]) printf("    cx: 0x%04x (%d)\n", registers[cx], registers[cx]);
+    if (registers[dx]) printf("    dx: 0x%04x (%d)\n", registers[dx], registers[dx]);
+    if (registers[sp]) printf("    sp: 0x%04x (%d)\n", registers[sp], registers[sp]);
+    if (registers[bp]) printf("    bp: 0x%04x (%d)\n", registers[bp], registers[bp]);
+    if (registers[si]) printf("    si: 0x%04x (%d)\n", registers[si], registers[si]);
+    if (registers[di]) printf("    di: 0x%04x (%d)\n", registers[di], registers[di]);
+                       printf("    ip: 0x%04x (%d)\n", registers[ip], registers[ip]);
+                       printf(" flags: %s", final_flags_str);
+
+    printf("\n");
     
     return 0;
 }
