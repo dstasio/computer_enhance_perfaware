@@ -248,7 +248,7 @@ void exec_op(Decoded_Op op, Register_Pointer *dest_reg_ptr, u16 data) {
         flags_register |= ((result >> high_bit) & 1) << SF;
     }
 
-    printf("\t; %s:0x%x -> 0x%x", dest_reg_ptr->name, prev_register_data, *dest_reg);
+    printf("\t; %s:0x%04x -> 0x%04x", dest_reg_ptr->name, prev_register_data, *dest_reg);
 
     printf("\tip:0x%x", registers[ip]);
 
@@ -501,7 +501,7 @@ int main(int args_count, char *args[])
             (*dest_register) &= ~register_pointer.mask;
             (*dest_register) |= data;
 
-            printf("\t; %s:0x%x -> 0x%x\tip:0x%x\n", register_pointer.name, prev_register_data, *dest_register, registers[ip]);
+            printf("\t; %s:0x%04x -> 0x%04x\tip:0x%04x\n", register_pointer.name, prev_register_data, *dest_register, registers[ip]);
         }
 
         else if ((instruction >> 2) == 0b101000) // memory to accumulator / accumulator to memory
@@ -555,49 +555,88 @@ int main(int args_count, char *args[])
 
         else if ((instruction >> 4) == 0b0111) // jumps
         {
-            char *jump_str = 0;
-            u8 jump_code = instruction & 0b1111;
-                 if (jump_code == 0b0101)
+            char *jump_str  = 0;
+            u8    jump_code = instruction & 0b1111;
+            bool  condition = false;
+
+            s8 ip_inc8 = eat_byte();
+
+                 if (jump_code == 0b0101) {
                 jump_str = "jne";
-            else if (jump_code == 0b0100)
+                condition = !(flags_register & (1 << ZF));
+            }
+            else if (jump_code == 0b0100) {
                 jump_str = "je";
-            else if (jump_code == 0b1100)
+                condition =  (flags_register & (1 << ZF));
+            }
+            else if (jump_code == 0b1100) {
                 jump_str = "jl";
-            else if (jump_code == 0b1110)
+                condition =  (flags_register & ((1 << SF) | (1 << OF)));
+            }
+            else if (jump_code == 0b1110) {
                 jump_str = "jle";
-            else if (jump_code == 0b0010)
+                condition =  (flags_register & (1 << ZF)) || (((flags_register >> SF) ^ (flags_register >> OF)) & 1);
+            }
+            else if (jump_code == 0b0010) {
                 jump_str = "jb";
-            else if (jump_code == 0b0110)
+                condition =  (flags_register & (1 << CF));
+            }
+            else if (jump_code == 0b0110) {
                 jump_str = "jbe";
-            else if (jump_code == 0b1010)
+                condition =  (flags_register & ((1 << CF) | (1 << ZF)));
+            }
+            else if (jump_code == 0b1010) {
                 jump_str = "jp";
-            else if (jump_code == 0b0000)
+                condition =  (flags_register & (1 << PF));
+            }
+            else if (jump_code == 0b0000) {
                 jump_str = "jo";
-            else if (jump_code == 0b1000)
+                condition =  (flags_register & (1 << OF));
+            }
+            else if (jump_code == 0b1000) {
                 jump_str = "js";
-            else if (jump_code == 0b1101)
+                condition =  (flags_register & (1 << SF));
+            }
+            else if (jump_code == 0b1101) {
                 jump_str = "jnl";
-            else if (jump_code == 0b1111)
+                condition = 0 == (((flags_register >> SF) ^ (flags_register >> OF)) & 1);
+            }
+            else if (jump_code == 0b1111) {
                 jump_str = "jg";
-            else if (jump_code == 0b0011)
+                condition =  0 == ( (flags_register & (1 << ZF)) && (((flags_register >> SF) ^ (flags_register >> OF)) & 1) );
+            }
+            else if (jump_code == 0b0011) {
                 jump_str = "jnb";
-            else if (jump_code == 0b0111)
+                condition = 0 == (flags_register & (1 << CF));
+            }
+            else if (jump_code == 0b0111) {
                 jump_str = "ja";
-            else if (jump_code == 0b1011)
+                condition = 0 == (flags_register & ((1 << CF) | (1 << ZF)));
+            }
+            else if (jump_code == 0b1011) {
                 jump_str = "jnp";
-            else if (jump_code == 0b0001)
+                condition = 0 == (flags_register & (1 << PF));
+            }
+            else if (jump_code == 0b0001) {
                 jump_str = "jno";
-            else if (jump_code == 0b1001)
+                condition = 0 == (flags_register & (1 << OF));
+            }
+            else if (jump_code == 0b1001) {
                 jump_str = "jns";
+                condition = 0 == (flags_register & (1 << SF));
+            }
 
             assert(jump_str);
 
-            s8 ip_inc8 = eat_byte();
-            ip_inc8 += 2;
-            printf("%s $%+d\n", jump_str, ip_inc8);
-
+            printf("%s $%+d", jump_str, ip_inc8 + 2);
 
             // exec
+            printf("  \t; ip:0x%x\n", registers[ip]);
+
+            if (condition) {
+                registers[ip]       += ip_inc8;
+                instruction_pointer += ip_inc8;
+            }
         }
         else if ((instruction >> 4) == 0b1110) // loops
         {
@@ -614,8 +653,7 @@ int main(int args_count, char *args[])
 
             assert(loop_str);
             s8 ip_inc8 = eat_byte();
-            ip_inc8 += 2;
-            printf("%s $%+d\n", loop_str, ip_inc8);
+            printf("%s $%+d\n", loop_str, ip_inc8 + 2);
         }
 
         else
