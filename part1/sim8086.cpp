@@ -641,7 +641,7 @@ int main(int args_count, char *args[])
             (*dest_register) &= ~register_pointer.mask;
             (*dest_register) |= data;
 
-            printf("      \t; %s:0x%04x -> 0x%04x\tip:0x%04x\n", register_pointer.name, prev_register_data, *dest_register, registers[ip]);
+            printf("   \t; %s:0x%04x -> 0x%04x\tip:0x%04x\n", register_pointer.name, prev_register_data, *dest_register, registers[ip]);
         }
 
         else if ((instruction >> 2) == 0b101000) // memory to accumulator / accumulator to memory
