@@ -26,40 +26,6 @@ void print_binary(u16 n)
     }
 }
 
-char *memory_locations[] = {
-                    //    REG
-    "bx + si",      // 0b 000
-    "bx + di",      // 0b 001
-    "bp + si",      // 0b 010
-    "bp + di",      // 0b 011
-    "si",           // 0b 100
-    "di",           // 0b 101
-    "",             // 0b 110
-    "bx",           // 0b 111
-};
-
-char *_register_name_table[] = {
-                      //    W REG/R_M
-    "al",             // 0b 0 000
-    "cl",             // 0b 0 001
-    "dl",             // 0b 0 010
-    "bl",             // 0b 0 011
-    "ah",             // 0b 0 100
-    "ch",             // 0b 0 101
-    "dh",             // 0b 0 110
-    "bh",             // 0b 0 111
-                              
-    "ax",             // 0b 1 000
-    "cx",             // 0b 1 001
-    "dx",             // 0b 1 010
-    "bx",             // 0b 1 011
-    "sp",             // 0b 1 100
-    "bp",             // 0b 1 101
-    "si",             // 0b 1 110
-    "di",             // 0b 1 111
-};
-
-
 enum Register_Index {
     ax,
     bx,
@@ -130,6 +96,7 @@ static char *op_names[] = {
 };
 
 Register_Pointer register_pointer_table[] = {
+#define w_reg_bp 0b1101
                                //    W REG/R_M
     { ax, 0x00FF, 0, "al" },   // 0b 0 000
     { cx, 0x00FF, 0, "cl" },   // 0b 0 001
@@ -149,6 +116,14 @@ Register_Pointer register_pointer_table[] = {
     { si, 0xFFFF, 0, "si" },   // 0b 1 110
     { di, 0xFFFF, 0, "di" },   // 0b 1 111
 };
+
+struct Memory_Pointer {
+    Register_Pointer *addend_0;
+    Register_Pointer *addend_1;
+    s16               address;
+    u16               num_bytes;
+};
+
 
 Decoded_Op decode_op(u8 op_code)
 {
@@ -190,14 +165,42 @@ int first_bit_set_high(u64 value) {
     return bit_index - 1;
 }
 
+
 // =========================================
 // State variables
 //
+#define MEMORY_SIZE 0xFFFF
+static u8  memory[MEMORY_SIZE];
 static u8 *instruction_pointer;
 static u8 *instruction_start;
 static u8 *instruction_end;
 static u16 registers[REGISTER_COUNT];
 static u16 flags_register;
+
+u16 calc_effective_address(Memory_Pointer *memptr) {
+    u64 mem_address = memptr->address;
+    if (memptr->addend_0)
+        mem_address += registers[memptr->addend_0->index];
+    if (memptr->addend_1)
+        mem_address += registers[memptr->addend_1->index];
+
+    assert(mem_address <= 0xFFFF);
+    return (u16)mem_address;
+};
+
+u16 read_memory(Memory_Pointer *memptr) {
+    u16 mem_data = 0;
+
+    auto address = calc_effective_address(memptr);
+    mem_data = memory[address];
+    if (memptr->num_bytes > 1) {
+        assert(memptr->num_bytes == 2);
+        mem_data |= memory[address + 1] << 8;
+    }
+
+    return mem_data;
+}
+
 
 u8 eat_byte()
 {
@@ -215,11 +218,28 @@ u8 peek_byte()
     return *instruction_pointer;
 };
 
-void exec_op(Decoded_Op op, Register_Pointer *dest_reg_ptr, u16 data) {
-    u16 *dest_reg          = &registers[  dest_reg_ptr->index];
-    u16 prev_register_data = *dest_reg;
+void print_op(Decoded_Op op, char *dest_str, u16 curr_data, u16 prev_data, bool print_flags = false, u16 prev_flags = 0) {
+    assert(dest_str);
 
-    u16 result = ((*dest_reg) >> dest_reg_ptr->shift) & dest_reg_ptr->mask;
+    printf("\t; %s:0x%04x -> 0x%04x", dest_str, prev_data, curr_data);
+
+    printf("\tip:0x%x", registers[ip]);
+
+    if (print_flags) {
+        char curr_flags_str[FLAGS_COUNT + 1] = {};
+        char prev_flags_str[FLAGS_COUNT + 1] = {};
+
+        fill_flags_string(flags_register, curr_flags_str);
+        fill_flags_string(    prev_flags, prev_flags_str);
+        printf("\tflags: %s -> %s", prev_flags_str, curr_flags_str);
+    }
+}
+
+// returns: true if flags were edited
+bool exec_op(Decoded_Op op, u16 *dest, u16 dest_shift, u16 dest_mask, u16 data) {
+    u16 prev_register_data = *dest;
+
+    u16 result = ((*dest) >> dest_shift) & dest_mask;
     bool do_flags = true;
     u16 prev_flags = flags_register;
     switch(op) {
@@ -232,54 +252,77 @@ void exec_op(Decoded_Op op, Register_Pointer *dest_reg_ptr, u16 data) {
         case OP_SUB:
         case OP_CMP: result -= data; break;
     }
-    result <<= dest_reg_ptr->shift;
-    result  &= dest_reg_ptr->mask;
+    result <<= dest_shift;
+    result  &= dest_mask;
 
     if (op != OP_CMP) {
-        (*dest_reg) &= ~dest_reg_ptr->mask;
-        (*dest_reg) |= result;
+        (*dest) &= ~dest_mask;
+        (*dest) |= result;
     }
 
     if (do_flags) {
-        auto high_bit = first_bit_set_high(dest_reg_ptr->mask);
+        auto high_bit = first_bit_set_high(dest_mask);
 
         flags_register &= (~(1 << ZF)) & (~(1 << SF));
         flags_register |=  (result == 0)             << ZF;
         flags_register |= ((result >> high_bit) & 1) << SF;
     }
 
-    printf("\t; %s:0x%04x -> 0x%04x", dest_reg_ptr->name, prev_register_data, *dest_reg);
-
-    printf("\tip:0x%x", registers[ip]);
-
-    if (do_flags) {
-        char curr_flags_str[FLAGS_COUNT + 1] = {};
-        char prev_flags_str[FLAGS_COUNT + 1] = {};
-
-        fill_flags_string(flags_register, curr_flags_str);
-        fill_flags_string(prev_flags, prev_flags_str);
-        printf("\tflags: %s -> %s", prev_flags_str, curr_flags_str);
-    }
+    return do_flags;
 }
 
-void exec_op(Decoded_Op op, Register_Pointer *dest_reg_ptr, Register_Pointer *source_reg_ptr) {
+inline bool exec_op(Decoded_Op op, Register_Pointer *dest_reg_ptr, u16 data) {
+    return exec_op(op, &registers[dest_reg_ptr->index], dest_reg_ptr->shift, dest_reg_ptr->mask, data);
+}
+
+// returns: true if flags were edited
+inline bool exec_op(Decoded_Op op, Register_Pointer *dest_reg_ptr, Register_Pointer *source_reg_ptr) {
     assert((dest_reg_ptr->mask >> dest_reg_ptr->shift) == (source_reg_ptr->mask >> source_reg_ptr->shift));
 
     u16 *source_reg = &registers[source_reg_ptr->index];
     u16 data        = ((*source_reg) >> source_reg_ptr->shift) & source_reg_ptr->mask;
+    return exec_op(op, dest_reg_ptr, data);
+}
 
-    exec_op(op, dest_reg_ptr, data);
+inline bool exec_op(Decoded_Op op, Memory_Pointer *dest_mem_ptr, u16 data) {
+    auto address = calc_effective_address(dest_mem_ptr);
+    u16 dest_shift = 0;
+    u16 dest_mask  = 0xFF;
+    if (dest_mem_ptr->num_bytes > 1)
+        dest_mask = 0xFFFF;
+    return exec_op(op, (u16 *)&memory[address], dest_shift, dest_mask, data);
 }
 
 
-struct Mod_R_M_Result
-{
+
+Memory_Pointer memory_pointer_table[] = {
+#define rpt register_pointer_table
+#define i_bx 0b1011
+#define i_bp 0b1101
+#define i_si 0b1110
+#define i_di 0b1111
+                                 //             REG
+    { &rpt[i_bx], &rpt[i_si], }, // "bx + si"   0b 000
+    { &rpt[i_bx], &rpt[i_di], }, // "bx + di"   0b 001
+    { &rpt[i_bp], &rpt[i_si], }, // "bp + si"   0b 010
+    { &rpt[i_bp], &rpt[i_di], }, // "bp + di"   0b 011
+    { &rpt[i_si],             }, // "si"        0b 100
+    { &rpt[i_di],             }, // "di"        0b 101
+    {                         }, // ""          0b 110
+    { &rpt[i_bx],             }, // "bx"        0b 111
+
+#undef rpt
+#undef i_bx
+#undef i_bp
+#undef i_si
+#undef i_di
+};
+
+struct Mod_R_M_Result {
+    // @todo: this should probably become a union
     bool              is_memory;
     Register_Pointer *register_pointer;
-
-    // @todo: when is_memory == false, string_data = "" and use register_pointer.name
-    char string_data[30];
-    char string_size[6];
+    Memory_Pointer    memory_pointer;
 };
 
 #define arr_len(arr) (sizeof(arr)/sizeof((arr)[0]))
@@ -291,41 +334,67 @@ Mod_R_M_Result do_mod_r_m(u8 mod, u8 r_m, u8 w)
     w = w << 3;
     if (mod == 0b11)
     {
-        sprintf_s(result.string_data, arr_len(result.string_data), "%s", register_pointer_table[r_m | w].name);
         result.register_pointer = &register_pointer_table[r_m | w];
     }
     else 
     {
         result.is_memory = true;
-#define MAX_MEMORY_ADDRESS_STRING_LENGTH 9
-        s16  disp                                          = 0;
-        char disp_string[MAX_MEMORY_ADDRESS_STRING_LENGTH] = {};
+        auto *mem_pointer = &result.memory_pointer;
+        if ((mod) && (r_m == 0b110))
+            mem_pointer->addend_0 = &register_pointer_table[w_reg_bp];
+        else
+            *mem_pointer = memory_pointer_table[r_m];
+
+        mem_pointer->num_bytes = (w) ? 2 : 1;
 
         if (mod == 0b01)
         {
-            disp = (s8)eat_byte();
+            mem_pointer->address = (s8)eat_byte();
         }
         else if ((mod == 0b10) || (r_m == 0b110))
         {
-            disp = eat_byte();
-            disp = disp | (eat_byte() << 8);
+            mem_pointer->address  =  eat_byte();
+            mem_pointer->address |= (eat_byte() << 8);
         }
-
-        if (disp)
-        {
-            sprintf_s(disp_string, arr_len(disp_string), "%d", disp);
-        }
-
-        char *memory_address_string = memory_locations[r_m];
-        if ((mod) && (r_m == 0b110))
-            memory_address_string = "bp";
-        sprintf_s(result.string_data, arr_len(result.string_data), "[%s%s%s]", memory_address_string, (memory_address_string[0] && disp_string[0]) ? " + " : "", disp_string);
-        sprintf_s(result.string_size, arr_len(result.string_size), "%s", (w) ? "word " : "byte ");
     }
 
     return result;
 }
 
+struct Memory_Pointer_String {
+    char data[30];
+};
+Memory_Pointer_String to_string(Memory_Pointer *memptr) {
+    Memory_Pointer_String result = {};
+
+    char *str = result.data;
+    auto  len = arr_len(result.data);
+
+    auto advance = sprintf_s(str, len, "%s ", (memptr->num_bytes == 1) ? "byte" : "word");
+    str += advance;
+    len -= advance;
+
+    advance = sprintf_s(str, len, "[");
+    str += advance;
+    len -= advance;
+
+    if (memptr->addend_0) {
+        advance = sprintf_s(str, len, "%s + ", memptr->addend_0->name);
+        str += advance;
+        len -= advance;
+    }
+    if (memptr->addend_1) {
+        advance = sprintf_s(str, len, "%s + ", memptr->addend_1->name);
+        str += advance;
+        len -= advance;
+    }
+
+    advance = sprintf_s(str, len, "%d]", memptr->address);
+    str += advance;
+    len -= advance;
+
+    return result;
+}
 
 // will advance instruction pointer by calling eat_byte when necessary
 void do_d_w_mod_reg_rm(u8 instruction, Decoded_Op op)
@@ -347,17 +416,51 @@ void do_d_w_mod_reg_rm(u8 instruction, Decoded_Op op)
 
 
     Mod_R_M_Result r_m_result = do_mod_r_m(mod, r_m, w >> 3);
-    if (d_flag)
-        printf("%s %s, %s", op_str, register_pointer_table[reg].name, r_m_result.string_data);
-    else
-        printf("%s %s, %s", op_str, r_m_result.string_data, register_pointer_table[reg].name);
-
-
-    // exec
+    u16   prev_dest     = 0;
+    u16   prev_flags    = flags_register;
+    u16   curr_data     = 0;
+    char *dest_name_str = 0;
+    bool flags_edited = false;
     if (!r_m_result.is_memory) {
         auto   dest_reg_ptr = d_flag ? &register_pointer_table[reg] :  r_m_result.register_pointer;
         auto source_reg_ptr = d_flag ?  r_m_result.register_pointer : &register_pointer_table[reg];
-        exec_op(op, dest_reg_ptr, source_reg_ptr);
+
+        printf("%s %s, %s", op_str, dest_reg_ptr->name, source_reg_ptr->name);
+
+        // exec
+        prev_dest    = registers[dest_reg_ptr->index];
+        flags_edited = exec_op(op, dest_reg_ptr, source_reg_ptr);
+
+        dest_name_str = dest_reg_ptr->name;
+        curr_data     = registers[dest_reg_ptr->index];
+    } else {
+        auto reg_ptr = &register_pointer_table[reg];
+
+        u16 mem_data = read_memory(&r_m_result.memory_pointer);
+
+        auto mem_string = to_string(&r_m_result.memory_pointer);
+        if (d_flag) {
+            printf("%s %s, %s", op_str, reg_ptr->name, mem_string.data);
+
+            prev_dest    = registers[reg_ptr->index];
+            flags_edited = exec_op(op, reg_ptr, mem_data);
+
+            dest_name_str = reg_ptr->name;
+            curr_data     = registers[reg_ptr->index];
+        } else {
+            printf("%s %s, %s", op_str, mem_string.data, reg_ptr->name);
+
+            u16 data = registers[reg_ptr->index] & reg_ptr->mask;
+            data >>= reg_ptr->shift;
+
+            prev_dest    = mem_data;
+            flags_edited = exec_op(op, &r_m_result.memory_pointer, data);
+
+            dest_name_str = mem_string.data;
+            curr_data     = read_memory(&r_m_result.memory_pointer);
+        }
+
+        print_op(op, dest_name_str, curr_data, prev_dest, flags_edited, prev_flags);
     }
     printf("\n");
 }
@@ -430,7 +533,24 @@ int main(int args_count, char *args[])
             if (w)
                 data = data | (eat_byte() << 8);
 
-            printf("mov %s, %s%d\n", r_m_result.string_data, (w) ? "word " : "byte ", data);
+            if (r_m_result.is_memory) {
+                auto mem_string = to_string(&r_m_result.memory_pointer);
+                printf("mov %s, %d", mem_string.data, data);
+
+                u16 prev_dest     = read_memory(&r_m_result.memory_pointer);
+               exec_op(OP_MOV, &r_m_result.memory_pointer, data);
+
+                print_op(OP_MOV, mem_string.data, read_memory(&r_m_result.memory_pointer), prev_dest, false);
+            } else {
+                printf("mov %s, %d", r_m_result.register_pointer->name, data);
+
+                u16 prev_dest = registers[r_m_result.register_pointer->index];
+                exec_op(OP_MOV, r_m_result.register_pointer, data);
+
+                print_op(OP_MOV, r_m_result.register_pointer->name, registers[r_m_result.register_pointer->index], prev_dest, false);
+            }
+
+            printf("\n");
         }
         else if ((instruction >> 2) == 0b100000)
         {
@@ -465,15 +585,35 @@ int main(int args_count, char *args[])
                 else
                     data = (s8)eat_byte();
 
+                char data_str[30] = {};
                 if (s) // signed
-                    printf("%s %s%s, %d", op_str, (r_m_result.is_memory) ? r_m_result.string_size : "", r_m_result.string_data, data);
+                    sprintf_s(data_str, arr_len(data_str), "%d", data);
                 else
-                    printf("%s %s%s, %u", op_str, (r_m_result.is_memory) ? r_m_result.string_size : "", r_m_result.string_data, data);
+                    sprintf_s(data_str, arr_len(data_str), "%u", data);
 
-                // exec
+
+
                 if (!r_m_result.is_memory) {
-                    auto   dest_reg_ptr = r_m_result.register_pointer;
-                    exec_op(op, dest_reg_ptr, data);
+                    auto dest_reg_ptr = r_m_result.register_pointer;
+
+                    printf("%s %s, %s", op_str, dest_reg_ptr->name, data_str);
+
+                    // exec
+                    u16  prev_dest    = registers[dest_reg_ptr->index];
+                    u16  prev_flags   = flags_register;
+                    bool flags_edited = exec_op(op, dest_reg_ptr, data);
+
+                    print_op(op, dest_reg_ptr->name, registers[dest_reg_ptr->index], prev_dest, flags_edited, prev_flags);
+                }
+                else {
+                    auto mem_string = to_string(&r_m_result.memory_pointer);
+
+                    printf("%s %s, %s", op_str, mem_string.data, data_str);
+
+                    u16 prev_dest     = read_memory(&r_m_result.memory_pointer);
+                    u16  prev_flags   = flags_register;
+                    bool flags_edited = exec_op(op, &r_m_result.memory_pointer, data);
+                    print_op(op, mem_string.data, read_memory(&r_m_result.memory_pointer), prev_dest, flags_edited, prev_flags);
                 }
 
                 printf("\n");
@@ -501,7 +641,7 @@ int main(int args_count, char *args[])
             (*dest_register) &= ~register_pointer.mask;
             (*dest_register) |= data;
 
-            printf("\t; %s:0x%04x -> 0x%04x\tip:0x%04x\n", register_pointer.name, prev_register_data, *dest_register, registers[ip]);
+            printf("      \t; %s:0x%04x -> 0x%04x\tip:0x%04x\n", register_pointer.name, prev_register_data, *dest_register, registers[ip]);
         }
 
         else if ((instruction >> 2) == 0b101000) // memory to accumulator / accumulator to memory
@@ -668,17 +808,17 @@ int main(int args_count, char *args[])
     char final_flags_str[FLAGS_COUNT + 1] = {};
     fill_flags_string(flags_register, final_flags_str);
 
-    printf("\nFinal registers:\n");
-    if (registers[ax]) printf("    ax: 0x%04x (%d)\n", registers[ax], registers[ax]);
-    if (registers[bx]) printf("    bx: 0x%04x (%d)\n", registers[bx], registers[bx]);
-    if (registers[cx]) printf("    cx: 0x%04x (%d)\n", registers[cx], registers[cx]);
-    if (registers[dx]) printf("    dx: 0x%04x (%d)\n", registers[dx], registers[dx]);
-    if (registers[sp]) printf("    sp: 0x%04x (%d)\n", registers[sp], registers[sp]);
-    if (registers[bp]) printf("    bp: 0x%04x (%d)\n", registers[bp], registers[bp]);
-    if (registers[si]) printf("    si: 0x%04x (%d)\n", registers[si], registers[si]);
-    if (registers[di]) printf("    di: 0x%04x (%d)\n", registers[di], registers[di]);
-                       printf("    ip: 0x%04x (%d)\n", registers[ip], registers[ip]);
-                       printf(" flags: %s", final_flags_str);
+    printf("\n; Final registers:\n");
+    if (registers[ax]) printf(";     ax: 0x%04x (%d)\n", registers[ax], registers[ax]);
+    if (registers[bx]) printf(";     bx: 0x%04x (%d)\n", registers[bx], registers[bx]);
+    if (registers[cx]) printf(";     cx: 0x%04x (%d)\n", registers[cx], registers[cx]);
+    if (registers[dx]) printf(";     dx: 0x%04x (%d)\n", registers[dx], registers[dx]);
+    if (registers[sp]) printf(";     sp: 0x%04x (%d)\n", registers[sp], registers[sp]);
+    if (registers[bp]) printf(";     bp: 0x%04x (%d)\n", registers[bp], registers[bp]);
+    if (registers[si]) printf(";     si: 0x%04x (%d)\n", registers[si], registers[si]);
+    if (registers[di]) printf(";     di: 0x%04x (%d)\n", registers[di], registers[di]);
+                       printf(";     ip: 0x%04x (%d)\n", registers[ip], registers[ip]);
+                       printf(";  flags: %s", final_flags_str);
 
     printf("\n");
     
