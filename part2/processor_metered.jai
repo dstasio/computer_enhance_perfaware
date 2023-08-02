@@ -28,6 +28,8 @@ parse_json :: (file: *[]u8) -> Bucket_Array(Pair, 1000) {
     allpairs : Bucket_Array(Pair, 1000);
 
     newpair : Pair;
+
+    time_block_start("loop");
     while cursor < end {
         container: *float64;
         push_pair := false;
@@ -62,6 +64,7 @@ parse_json :: (file: *[]u8) -> Bucket_Array(Pair, 1000) {
 
         cursor += 1;
     }
+    time_block_end("loop");
 
     return allpairs;
 }
