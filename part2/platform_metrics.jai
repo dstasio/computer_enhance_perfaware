@@ -1,3 +1,57 @@
+// Profiling
+
+#add_context profilings : (string, u64);
+#add_context profiling_start : u64;
+
+time_function :: inline () #expand {
+    name       := copy_string(context.stack_trace.info.name);
+    start_time := read_cpu_timer();
+
+    `defer {
+        end_time := read_cpu_timer();
+        duration := end_time - start_time;
+
+        elem, new := find_or_add(*context.profilings, name);
+
+        if new then elem.* = 0;
+        elem.* += duration;
+    };
+}
+
+time_block :: inline (name: string) #expand {
+    start_time := read_cpu_timer();
+
+    `defer {
+        end_time := read_cpu_timer();
+        duration := end_time - start_time;
+
+        elem, new := find_or_add(*context.profilings, copy_string(name));
+
+        if new then elem.* = 0;
+        elem.* += duration;
+    };
+}
+
+start_profiling :: inline () {
+    context.profiling_start = read_cpu_timer();
+}
+
+end_and_report_profiling :: inline (cpu_frequency: u64) {
+    assert(context.profiling_start != 0);
+
+    end            := read_cpu_timer();
+    total_duration := cast(float64)(end - context.profiling_start);
+
+    print("\nTotal Time: %ms\n", FormatFloat.{value = 1000.0 * total_duration / cast(float64)cpu_frequency, trailing_width = 2});
+
+    for context.profilings {
+        percentage := 100.0 * cast(float64)it / total_duration;
+        print("%: % (%0%%)\n", it_index, it, FormatFloat.{value = percentage, trailing_width = 2});
+    }
+}
+
+// OS
+
 #if OS == .WINDOWS {
 
 #import "Windows";
@@ -33,11 +87,7 @@ read_os_timer :: () -> u64 {
 
 }
 
-/* NOTE(casey): This does not need to be "inline", it could just be "static"
-   because compilers will inline it anyway. But compilers will warn about 
-   static functions that aren't used. So "inline" is just the simplest way 
-   to tell them to stop complaining about that. */
-read_cpu_timer :: () -> u64 #expand {
+read_cpu_timer :: inline () -> u64 {
     return rdtsc();
 }
 
@@ -66,3 +116,4 @@ estimate_cpu_frequency :: (milliseconds_to_wait: u64) -> cpu_freq: u64, was_able
 }
 
 #import "Machine_X64";
+#import "Hash_Table";
