@@ -1,2 +1,5 @@
 build/
 *.swp
+.build/
+*.pdb
+*.exe
