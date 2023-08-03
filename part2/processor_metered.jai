@@ -1,6 +1,13 @@
 #load "haversine.jai";
 #load "platform_metrics.jai";
 
+#run {
+    #import "Compiler";
+
+    set_build_options_dc(.{output_path = "build"});
+}
+
+
 Arguments :: struct {
     pairs : string;
     ddump : string;

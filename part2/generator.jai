@@ -1,5 +1,11 @@
 #load "haversine.jai";
 
+#run {
+    #import "Compiler";
+
+    set_build_options_dc(.{output_path = "build"});
+}
+
 Arguments :: struct {
     name     : string;
     clusters :     = false;
