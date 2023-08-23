@@ -14,6 +14,7 @@ profiler_open_hook : int;
 
 Profiler_Hook :: struct {
     name              : string;
+
     duration          : u64;
     parent_hook_index : int;
     _start_time       : u64;
@@ -26,18 +27,18 @@ time_function :: inline () #expand {
     assert(profiler_open_hook != hook_index);
 
     using hook := *profiler_hooks[hook_index];
-    if !name {
-        name = copy_string(context.stack_trace.info.name);
-    }
     parent_hook_index  = profiler_open_hook;
     profiler_open_hook = hook_index;
 
     _start_time = read_cpu_timer();
 
     `defer {
-        end_time := read_cpu_timer();
+        print("Ending function: %\n", #procedure_name());
 
+        end_time := read_cpu_timer();
         duration += end_time - _start_time;
+
+        if !name then name = #procedure_name();
 
         if parent_hook_index {
             profiler_open_hook = parent_hook_index;
@@ -52,9 +53,6 @@ time_block :: inline (name_: string) #expand {
     assert(profiler_open_hook != hook_index);
 
     using hook := *profiler_hooks[hook_index];
-    if !name {
-        name = copy_string(name_);
-    }
     parent_hook_index  = profiler_open_hook;
     profiler_open_hook = hook_index;
 
@@ -62,8 +60,10 @@ time_block :: inline (name_: string) #expand {
 
     `defer {
         end_time := read_cpu_timer();
-
         duration += end_time - _start_time;
+
+        // @robustness: this will only work for constant strings.
+        if !name then name = name_;
 
         if parent_hook_index {
             profiler_open_hook = parent_hook_index;
@@ -80,7 +80,9 @@ time_block_start :: inline (name_: string) #expand {
 
     using hook := *profiler_hooks[hook_index];
 
-    if !name then name = copy_string(name_);
+    // @robustness: this will only work for constant strings.
+    if !name then name = name_;
+
     _start_time = read_cpu_timer();
 
 }
@@ -116,10 +118,11 @@ end_and_report_profiling :: inline (cpu_frequency: u64) {
     print("\nTotal Time: %ms\n", FormatFloat.{value = 1000.0 * total_duration / cast(float64)cpu_frequency, trailing_width = 2});
 
     for profiler_hooks {
+        if it_index == 0                 continue;
         if it_index > CURRENT_HOOK_INDEX break;
 
         percentage := 100.0 * cast(float64)it.duration / total_duration;
-        print("%: % (%0%%)\n", it_index, it, FormatFloat.{value = percentage, trailing_width = 2});
+        print("%: % -> % (%0%%)\n", it_index, it.name, it.duration, FormatFloat.{value = percentage, trailing_width = 2});
     }
 }
 
@@ -191,8 +194,11 @@ estimate_cpu_frequency :: (milliseconds_to_wait: u64) -> cpu_freq: u64, was_able
 #scope_file
 
 new_hook_index :: () -> int #expand {
+    // @note: name cannot be copied at compile-time because #procedure_name() only works
+    //        at runtime.
     CURRENT_HOOK_INDEX += 1;
     assert(CURRENT_HOOK_INDEX < MAX_PROFILER_HOOKS);
+
     return CURRENT_HOOK_INDEX;
 }
 

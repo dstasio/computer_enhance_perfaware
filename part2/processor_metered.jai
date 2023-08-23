@@ -9,8 +9,7 @@
 
 
 Arguments :: struct {
-    pairs : string;
-    ddump : string;
+    name  : string;
 }
 
 Pair :: struct {
@@ -83,31 +82,32 @@ main :: () {
 
     context.print_style.default_format_float.trailing_width = 13;
 
-    success, args, is_set := parse_arguments(Arguments);
-    if !success return;
-
-    if !is_set.pairs {
-        show_help(Arguments, Default_Argument_Flags, .["help", "HELP", "?"]);
+    args := get_command_line_arguments();
+    if args.count < 2 {
+        log_error("[Error] No name was supplied! Usage: % (name)", args[0]);
         return;
     }
 
-    points_file:, success = read_entire_file(args.pairs);
+    json_filename := tprint("data_%.json", args[1]);
+    json_file, success := read_entire_file(json_filename);
     if !success {
-        log("Unable to open file '%'", args.pairs);
+        log("Unable to open file '%'", json_filename);
         return;
     }
 
     reference_distance : *float64;
-    expected_mean : float64;
-    if is_set.ddump {
-        ddump_file:, success = read_entire_file(args.ddump);
+    expected_mean      : float64;
+    ddump_filename := tprint("ddump_%.f64", args[1]);
+    if file_exists(ddump_filename) {
+        time_block("file_read");
+        ddump_file:, success = read_entire_file(ddump_filename);
         assert(success);
         reference_distance   = xx ddump_file.data;
         expected_mean        = reference_distance.*;
         reference_distance  += 1; // the first float64 is the expected mean
     }
 
-    pairs := parse_json(xx *points_file);
+    pairs := parse_json(xx *json_file);
 
     mean_sum : float64;
     for pairs {
@@ -146,3 +146,4 @@ main :: () {
 #import "Bucket_Array";
 #import "Math";
 #import "Sloppy_Math";
+#import "File_Utilities";
