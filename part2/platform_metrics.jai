@@ -21,9 +21,7 @@ Profiler_Hook :: struct {
 };
 
 time_function :: inline () #expand {
-    print("timing\n");
     hook_index := #run new_hook_index();
-    print("op: %, i: %\n", profiler_open_hook, hook_index);
     assert(profiler_open_hook != hook_index);
 
     using hook := *profiler_hooks[hook_index];
@@ -40,9 +38,8 @@ time_function :: inline () #expand {
 
         if !name then name = #procedure_name();
 
+        profiler_open_hook = parent_hook_index;
         if parent_hook_index {
-            profiler_open_hook = parent_hook_index;
-
             profiler_hooks[parent_hook_index].duration -= duration;
         }
     };
@@ -65,9 +62,8 @@ time_block :: inline (name_: string) #expand {
         // @robustness: this will only work for constant strings.
         if !name then name = name_;
 
+        profiler_open_hook = parent_hook_index;
         if parent_hook_index {
-            profiler_open_hook = parent_hook_index;
-
             profiler_hooks[parent_hook_index].duration -= duration;
         }
     };
@@ -94,13 +90,10 @@ time_block_end :: inline (name_: string) #expand {
 
     assert(name == name_);
 
-    print("dur bef: %\n", duration);
     duration += end_time - _start_time;
-    print("dur aft: %\n", duration);
 
+    profiler_open_hook = parent_hook_index;
     if parent_hook_index {
-        profiler_open_hook = parent_hook_index;
-
         profiler_hooks[parent_hook_index].duration -= duration;
     }
 }

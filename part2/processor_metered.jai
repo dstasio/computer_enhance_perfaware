@@ -125,7 +125,7 @@ main :: () {
         mean_sum += distance;
     }
 
-    mean_sum      /= pairs.count;
+    mean_sum /= pairs.count;
 
     //report_memory_leaks();
 
