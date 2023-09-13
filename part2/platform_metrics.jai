@@ -1,4 +1,6 @@
 // Profiling
+//#module_parameters(DUMMY := false);
+DUMMY :: false;
 
 start_profiling :: inline () {
     profiling_start = read_cpu_timer();
@@ -11,7 +13,12 @@ end_and_report_profiling :: inline (cpu_frequency: u64) {
     end            := read_cpu_timer();
     total_duration := cast(float64)(end - profiling_start);
 
-    print("\nTotal Time: %ms\n", FormatFloat.{value = 1000.0 * total_duration / cast(float64)cpu_frequency, trailing_width = 2});
+    print_time := total_duration / cast(float64)cpu_frequency;
+    time_unit  := "ms";
+    if print_time < 1 then print_time *= 1000;
+    else                 { time_unit.data += 1; time_unit.count -= 1; }
+
+    print("\nTotal Time: %0%0\n", FormatFloat.{value = print_time, trailing_width = 2}, time_unit);
 
     for profiler_hooks {
         if it_index == 0                 continue;
@@ -28,6 +35,13 @@ end_and_report_profiling :: inline (cpu_frequency: u64) {
         print("\n");
     }
 }
+
+#if DUMMY {
+time_function    :: ()            #expand {}
+time_block       :: (args: ..Any) #expand {}
+time_block_start :: (args: ..Any) #expand {}
+time_block_end   :: (args: ..Any) #expand {}
+} else {
 
 time_function :: inline () #expand {
     time_block_start(#procedure_name());
@@ -74,6 +88,7 @@ time_block_end :: inline ($NAME: string) #expand {
 
     profiler_open_hook = mark.parent_hook_index;
 }
+} // DUMMY == false
 
 // OS
 
@@ -109,7 +124,7 @@ read_os_timer :: () -> s64 {
     return result;
 }
 
-}
+} // End of OS-related functions
 
 read_cpu_timer :: inline () -> u64 {
     return rdtsc();
@@ -165,6 +180,9 @@ Profiler_Hook :: struct {
 
     duration_exclusive : u64; // without children
     duration_inclusive : u64; // with    children
+
+    // TODO: fill this
+    run_count          : int;
 };
 
 Profiler_Mark :: struct {
