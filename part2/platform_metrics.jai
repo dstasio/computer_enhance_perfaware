@@ -1,115 +1,10 @@
 // Profiling
 
-#scope_file
-
-          MAX_PROFILER_HOOKS :: 64;
-#no_reset CURRENT_HOOK_INDEX :=  0; // index 0 is reserved
-
-profiler_hooks     : [MAX_PROFILER_HOOKS]Profiler_Hook;
-profiling_start    : u64;
-profiler_open_hook : int;
-
-
-#scope_export
-
-Profiler_Hook :: struct {
-    name              : string;
-
-    duration_exclusive     : u64;
-    duration_inclusive     : u64;
-    //duration_with_children : u64;
-    //parent_hook_index : int;
-    //_start_time       : u64;
-};
-
-time_function :: inline () #expand {
-    hook_index := #run new_hook_index();
-
-    using hook := *profiler_hooks[hook_index];
-    `_function_profiling_parent_hook_index := profiler_open_hook;
-    old_duration_inclusive := duration_inclusive;
-    profiler_open_hook = hook_index;
-
-    `__function_profiling_start_time := read_cpu_timer();
-
-    `defer {
-        end_time           := read_cpu_timer();
-        elapsed            := (end_time - `__function_profiling_start_time);
-        duration_exclusive += elapsed;
-        duration_inclusive  = old_duration_inclusive + elapsed;
-        if `_function_profiling_parent_hook_index {
-            profiler_hooks[`_function_profiling_parent_hook_index].duration_exclusive -= elapsed;
-        }
-
-        if !name then name = #procedure_name();
-
-
-        profiler_open_hook = `_function_profiling_parent_hook_index;
-    };
-}
-
-time_block :: inline ($__profiling_block_name__: string) #expand {
-    hook_index := #run new_hook_index();
-
-    using hook := *profiler_hooks[hook_index];
-    `__block_profiling_parent_hook_index := profiler_open_hook;
-    profiler_open_hook = hook_index;
-
-    // nocheckin @todo: use name here too
-    `__block_profiling_start_time := read_cpu_timer();
-
-    `defer {
-        end_time           := read_cpu_timer();
-        duration_exclusive += xx (end_time - `__block_profiling_start_time);
-
-        // @robustness: this will only work for constant strings.
-        if !name then name = __profiling_block_name__;
-        
-        // TODO: duration as root
-
-        profiler_open_hook = `__block_profiling_parent_hook_index;
-        if `__block_profiling_parent_hook_index {
-            profiler_hooks[`__block_profiling_parent_hook_index].duration_exclusive -= duration_exclusive;
-        }
-    };
-}
-
-time_block_start :: inline ($__profiling_block_name__: string) #expand {
-    hook_index := #run new_hook_index();
-
-    #insert #run tprint("`__block_profiling_%_parent_hook := profiler_open_hook;", __profiling_block_name__);
-    profiler_open_hook = hook_index;
-
-    using hook := *profiler_hooks[hook_index];
-
-    // @robustness: this will only work for constant strings.
-    if !name then name = __profiling_block_name__;
-
-    #insert #run tprint("`__block_profiling_%_start_time := read_cpu_timer();", __profiling_block_name__);
-}
-
-time_block_end :: inline ($__profiling_block_name__: string) #expand {
-    end_time := read_cpu_timer();
-
-    using hook := *profiler_hooks[profiler_open_hook];
-
-    assert(name == __profiling_block_name__);
-
-    duration_exclusive += #insert #run tprint("xx (end_time - `__block_profiling_%_start_time);", __profiling_block_name__);
-
-    // TODO: duration as root
-
-    parent_hook_index := #insert #run tprint("`__block_profiling_%_parent_hook;", __profiling_block_name__);
-    profiler_open_hook = xx parent_hook_index;
-    if parent_hook_index {
-        profiler_hooks[parent_hook_index].duration_exclusive -= duration_exclusive;
-    }
-}
-
 start_profiling :: inline () {
     profiling_start = read_cpu_timer();
 }
 
+// TODO: compute the cpu_frequency automatically
 end_and_report_profiling :: inline (cpu_frequency: u64) {
     assert(profiling_start != 0);
 
@@ -134,6 +29,52 @@ end_and_report_profiling :: inline (cpu_frequency: u64) {
     }
 }
 
+time_function :: inline () #expand {
+    time_block_start(#procedure_name());
+    `defer time_block_end(#procedure_name());
+}
+
+time_block :: inline ($NAME: string) #expand {
+    time_block_start(NAME);
+    `defer time_block_end(NAME);
+}
+
+time_block_start :: inline ($NAME: string) #expand {
+    hook_index := #run new_hook_index();
+
+    using hook := *profiler_hooks[hook_index];
+    MARK_NAME :: #run tprint("`_profiling_%_mark", NAME);
+
+    #insert #run tprint("% : Profiler_Mark;\n", MARK_NAME);
+    #insert #run tprint("mark := *%;\n", MARK_NAME);
+    mark.parent_hook_index      = profiler_open_hook;
+    mark.old_duration_inclusive = duration_inclusive;
+
+    profiler_open_hook = hook_index;
+
+    // @robustness: this will only work for constant strings.
+    if !name then name = NAME;
+
+    mark.start_time = read_cpu_timer();
+}
+
+time_block_end :: inline ($NAME: string) #expand {
+    end_time := read_cpu_timer();
+
+    using hook := *profiler_hooks[profiler_open_hook];
+    assert(name == NAME);
+
+    MARK_NAME :: #run tprint("`_profiling_%_mark", NAME);
+    #insert #run tprint("mark := *%;\n", MARK_NAME);
+
+    elapsed            := end_time - mark.start_time;
+    duration_exclusive += elapsed;
+    duration_inclusive  = mark.old_duration_inclusive + elapsed;
+    profiler_hooks[mark.parent_hook_index].duration_exclusive -= elapsed;
+
+    profiler_open_hook = mark.parent_hook_index;
+}
+
 // OS
 
 #if OS == .WINDOWS {
@@ -152,8 +93,7 @@ read_os_timer :: () -> s64 {
     return value;
 }
 
-}
-else {
+} else { // OS != .WINDOWS
 
 #import "POSIX";
 
@@ -209,5 +149,29 @@ new_hook_index :: () -> int #expand {
 
     return CURRENT_HOOK_INDEX;
 }
+
+//
+// Internal Data
+//
+          MAX_PROFILER_HOOKS :: 64;
+#no_reset CURRENT_HOOK_INDEX :=  0; // index 0 is reserved
+
+profiler_hooks     : [MAX_PROFILER_HOOKS]Profiler_Hook;
+profiling_start    : u64;
+profiler_open_hook : int;
+
+Profiler_Hook :: struct {
+    name              : string;
+
+    duration_exclusive : u64; // without children
+    duration_inclusive : u64; // with    children
+};
+
+Profiler_Mark :: struct {
+    parent_hook_index      : int;
+    old_duration_inclusive : u64;
+    start_time             : u64;
+}
+
 
 #import "Machine_X64";
