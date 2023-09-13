@@ -79,6 +79,7 @@ main :: () {
     cpu_frequency  := estimate_cpu_frequency(200);
 
     start_profiling();
+    #if 0 {
 
     context.print_style.default_format_float.trailing_width = 13;
 
@@ -126,9 +127,14 @@ main :: () {
     }
 
     mean_sum /= pairs.count;
+    }
 
     //report_memory_leaks();
 
+    _recursive_A(0);
+    _recursive_C(0);
+
+    #if 0 {
     print("Pair count: %\n", pairs.count);
     print("Computed Mean: %\n", mean_sum);
     if reference_distance {
@@ -136,8 +142,38 @@ main :: () {
         print("Expected Mean: %\n", expected_mean);
         print("Difference:    %\n", expected_mean - mean_sum);
     }
+    }
 
     end_and_report_profiling(cpu_frequency);
+}
+
+_recursive_A :: (idx: int = 0) -> int {
+    time_function();
+    if idx == 2 {
+        a := 0;
+        for 0..1000 a += it;
+        return a;
+    }
+
+    c := _recursive_A(idx + 1);
+    for 0..1000000 c += it;
+    return c;
+}
+
+_recursive_B :: (idx: int = 0) -> int {
+    time_function();
+
+    return _recursive_C(idx);
+}
+
+_recursive_C :: (idx: int = 0) -> int {
+    time_function();
+
+    c := 0;
+    if idx == 0 c = _recursive_B(idx + 1);
+    else        for 0..20000 c += it;
+
+    return c;
 }
 
 #import "Command_Line";

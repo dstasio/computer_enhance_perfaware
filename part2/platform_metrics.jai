@@ -15,86 +15,94 @@ profiler_open_hook : int;
 Profiler_Hook :: struct {
     name              : string;
 
-    duration          : u64;
-    parent_hook_index : int;
-    _start_time       : u64;
+    duration_exclusive     : u64;
+    duration_inclusive     : u64;
+    //duration_with_children : u64;
+    //parent_hook_index : int;
+    //_start_time       : u64;
 };
 
 time_function :: inline () #expand {
     hook_index := #run new_hook_index();
-    assert(profiler_open_hook != hook_index);
 
     using hook := *profiler_hooks[hook_index];
-    parent_hook_index  = profiler_open_hook;
+    `_function_profiling_parent_hook_index := profiler_open_hook;
+    old_duration_inclusive := duration_inclusive;
     profiler_open_hook = hook_index;
 
-    _start_time = read_cpu_timer();
+    `__function_profiling_start_time := read_cpu_timer();
 
     `defer {
-        print("Ending function: %\n", #procedure_name());
-
-        end_time := read_cpu_timer();
-        duration += end_time - _start_time;
+        end_time           := read_cpu_timer();
+        elapsed            := (end_time - `__function_profiling_start_time);
+        duration_exclusive += elapsed;
+        duration_inclusive  = old_duration_inclusive + elapsed;
+        if `_function_profiling_parent_hook_index {
+            profiler_hooks[`_function_profiling_parent_hook_index].duration_exclusive -= elapsed;
+        }
 
         if !name then name = #procedure_name();
 
-        profiler_open_hook = parent_hook_index;
-        if parent_hook_index {
-            profiler_hooks[parent_hook_index].duration -= duration;
-        }
+
+        profiler_open_hook = `_function_profiling_parent_hook_index;
     };
 }
 
-time_block :: inline (name_: string) #expand {
+time_block :: inline ($__profiling_block_name__: string) #expand {
     hook_index := #run new_hook_index();
-    assert(profiler_open_hook != hook_index);
 
     using hook := *profiler_hooks[hook_index];
-    parent_hook_index  = profiler_open_hook;
+    `__block_profiling_parent_hook_index := profiler_open_hook;
     profiler_open_hook = hook_index;
 
-    _start_time = read_cpu_timer();
+    // nocheckin @todo: use name here too
+    `__block_profiling_start_time := read_cpu_timer();
 
     `defer {
-        end_time := read_cpu_timer();
-        duration += end_time - _start_time;
+        end_time           := read_cpu_timer();
+        duration_exclusive += xx (end_time - `__block_profiling_start_time);
 
         // @robustness: this will only work for constant strings.
-        if !name then name = name_;
+        if !name then name = __profiling_block_name__;
+        
+        // TODO: duration as root
 
-        profiler_open_hook = parent_hook_index;
-        if parent_hook_index {
-            profiler_hooks[parent_hook_index].duration -= duration;
+        profiler_open_hook = `__block_profiling_parent_hook_index;
+        if `__block_profiling_parent_hook_index {
+            profiler_hooks[`__block_profiling_parent_hook_index].duration_exclusive -= duration_exclusive;
         }
     };
 }
 
-time_block_start :: inline (name_: string) #expand {
+time_block_start :: inline ($__profiling_block_name__: string) #expand {
     hook_index := #run new_hook_index();
 
+    #insert #run tprint("`__block_profiling_%_parent_hook := profiler_open_hook;", __profiling_block_name__);
     profiler_open_hook = hook_index;
 
     using hook := *profiler_hooks[hook_index];
 
     // @robustness: this will only work for constant strings.
-    if !name then name = name_;
+    if !name then name = __profiling_block_name__;
 
-    _start_time = read_cpu_timer();
-
+    #insert #run tprint("`__block_profiling_%_start_time := read_cpu_timer();", __profiling_block_name__);
 }
 
-time_block_end :: inline (name_: string) #expand {
+time_block_end :: inline ($__profiling_block_name__: string) #expand {
     end_time := read_cpu_timer();
 
     using hook := *profiler_hooks[profiler_open_hook];
 
-    assert(name == name_);
+    assert(name == __profiling_block_name__);
 
-    duration += end_time - _start_time;
+    duration_exclusive += #insert #run tprint("xx (end_time - `__block_profiling_%_start_time);", __profiling_block_name__);
 
-    profiler_open_hook = parent_hook_index;
+    // TODO: duration as root
+
+    parent_hook_index := #insert #run tprint("`__block_profiling_%_parent_hook;", __profiling_block_name__);
+    profiler_open_hook = xx parent_hook_index;
     if parent_hook_index {
-        profiler_hooks[parent_hook_index].duration -= duration;
+        profiler_hooks[parent_hook_index].duration_exclusive -= duration_exclusive;
     }
 }
 
@@ -114,8 +122,15 @@ end_and_report_profiling :: inline (cpu_frequency: u64) {
         if it_index == 0                 continue;
         if it_index > CURRENT_HOOK_INDEX break;
 
-        percentage := 100.0 * cast(float64)it.duration / total_duration;
-        print("%: % -> % (%0%%)\n", it_index, it.name, it.duration, FormatFloat.{value = percentage, trailing_width = 2});
+        percentage         := 100.0 * cast(float64)it.duration_exclusive / total_duration;
+        as_root_percentage := 100.0 * cast(float64)it.duration_inclusive / total_duration;
+        print("%: % -> % (%0%%)",
+              it_index, it.name,
+              it.duration_exclusive, FormatFloat.{value = percentage, trailing_width = 2});
+
+        if it.duration_inclusive != it.duration_exclusive
+            print(" | w/children % (%0%%)", it.duration_inclusive, FormatFloat.{value = as_root_percentage, trailing_width = 2});
+        print("\n");
     }
 }
 
