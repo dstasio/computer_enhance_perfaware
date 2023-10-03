@@ -21,8 +21,6 @@ Pair :: struct {
 }
 
 parse_json :: (file: *[]u8) -> Bucket_Array(Pair, 1000) {
-    time_function();
-
     end    := file.data + file.count;
     cursor := file.data;
 
@@ -35,7 +33,6 @@ parse_json :: (file: *[]u8) -> Bucket_Array(Pair, 1000) {
 
     newpair : Pair;
 
-    time_block_start("loop");
     while cursor < end {
         container: *float64;
         push_pair := false;
@@ -70,7 +67,6 @@ parse_json :: (file: *[]u8) -> Bucket_Array(Pair, 1000) {
 
         cursor += 1;
     }
-    time_block_end("loop");
 
     return allpairs;
 }
@@ -89,7 +85,11 @@ main :: () {
     }
 
     json_filename := tprint("data_%.json", args[1]);
+
+    time_block_start("json file read");
     json_file, success := read_entire_file(json_filename);
+    time_block_end("json file read", json_file.count);
+
     if !success {
         log("Unable to open file '%'", json_filename);
         return;
@@ -99,20 +99,23 @@ main :: () {
     expected_mean      : float64;
     ddump_filename := tprint("ddump_%.f64", args[1]);
     if file_exists(ddump_filename) {
-        time_block("file_read");
+        time_block_start("dump file read");
         ddump_file:, success = read_entire_file(ddump_filename);
+        time_block_end("dump file read", ddump_file.count);
+
         assert(success);
         reference_distance   = xx ddump_file.data;
         expected_mean        = reference_distance.*;
         reference_distance  += 1; // the first float64 is the expected mean
     }
 
+    time_block_start("json parsing", json_file.count);
     pairs := parse_json(xx *json_file);
+    time_block_end("json parsing", json_file.count);
 
     mean_sum : float64;
+    time_block_start("pairs sum", pairs.count * size_of(Pair));
     for pairs {
-        time_block("sum");
-
         using it;
         distance := reference_haversine(x0, y0, x1, y1, EARTH_RADIUS);
 
@@ -126,6 +129,8 @@ main :: () {
     }
 
     mean_sum /= pairs.count;
+
+    time_block_end("pairs sum");
 
     //report_memory_leaks();
 

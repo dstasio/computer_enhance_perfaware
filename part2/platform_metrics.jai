@@ -32,6 +32,22 @@ end_and_report_profiling :: inline (cpu_frequency: u64) {
 
         if it.duration_inclusive != it.duration_exclusive
             print(" | w/children % (%0%%)", it.duration_inclusive, FormatFloat.{value = as_root_percentage, trailing_width = 2});
+
+        if it.byte_count {
+            data_unit := "B";
+            data_amount := cast(float64) it.byte_count;
+            if data_amount > 1024 { data_amount /= 1024; data_unit = "KiB"; }
+            if data_amount > 1024 { data_amount /= 1024; data_unit = "MiB"; }
+            if data_amount > 1024 { data_amount /= 1024; data_unit = "GiB"; }
+
+            MiB :: 1024 * 1024;
+            GiB :: 1024 * MiB;
+            duration_seconds := cast(float64)it.duration_inclusive / cpu_frequency;
+            speed := cast(float64)it.byte_count / duration_seconds;
+            speed /= GiB;
+            print(" --- %0%0 (%0 GiB/s)", FormatFloat.{value = data_amount, trailing_width = 3}, data_unit, speed);
+        }
+
         print("\n");
     }
 }
@@ -48,16 +64,18 @@ time_function :: inline () #expand {
     `defer time_block_end(#procedure_name());
 }
 
-time_block :: inline ($NAME: string) #expand {
-    time_block_start(NAME);
+time_block :: inline ($NAME: string, bytes := 0) #expand {
+    time_block_start(NAME, bytes);
     `defer time_block_end(NAME);
 }
 
-time_block_start :: inline ($NAME: string) #expand {
+time_block_start :: inline ($NAME: string, bytes := 0) #expand {
     hook_index := #run new_hook_index();
 
     using hook := *profiler_hooks[hook_index];
-    MARK_NAME :: #run tprint("`_profiling_%_mark", NAME);
+    MARK_NAME :: #run tprint("`_profiling_%_mark", remove_whitespace(NAME));
+
+    byte_count += bytes;
 
     #insert #run tprint("% : Profiler_Mark;\n", MARK_NAME);
     #insert #run tprint("mark := *%;\n", MARK_NAME);
@@ -72,13 +90,15 @@ time_block_start :: inline ($NAME: string) #expand {
     mark.start_time = read_cpu_timer();
 }
 
-time_block_end :: inline ($NAME: string) #expand {
+time_block_end :: inline ($NAME: string, bytes := 0) #expand {
     end_time := read_cpu_timer();
 
     using hook := *profiler_hooks[profiler_open_hook];
     assert(name == NAME);
 
-    MARK_NAME :: #run tprint("`_profiling_%_mark", NAME);
+    byte_count += bytes;
+
+    MARK_NAME :: #run tprint("`_profiling_%_mark", remove_whitespace(NAME));
     #insert #run tprint("mark := *%;\n", MARK_NAME);
 
     elapsed            := end_time - mark.start_time;
@@ -181,6 +201,7 @@ Profiler_Hook :: struct {
     duration_exclusive : u64; // without children
     duration_inclusive : u64; // with    children
 
+    byte_count         : int;
     // TODO: fill this
     run_count          : int;
 };
@@ -191,5 +212,15 @@ Profiler_Mark :: struct {
     start_time             : u64;
 }
 
+remove_whitespace :: (str: string) -> string {
+    adjusted: string;
+    adjusted.count = str.count;
+    adjusted.data  = alloc(adjusted.count, temp);
+
+    for 0..(str.count - 1) {
+        adjusted[it] = ifx str[it] != #char " " else #char "_";
+    }
+    return adjusted;
+}
 
 #import "Machine_X64";
