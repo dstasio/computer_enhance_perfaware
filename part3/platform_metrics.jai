@@ -116,6 +116,22 @@ time_block_end :: inline ($NAME: string, bytes := 0) #expand {
 
 #import "Windows";
 
+initialize_os_metrics :: () {
+    using metrics_data;
+    if initialized return;
+
+    initialized = true;
+    process_handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, GetCurrentProcessId());
+}
+
+read_os_page_fault_count :: () -> u64 {
+    counters : PROCESS_MEMORY_COUNTERS_EX;
+    counters.cb = size_of(type_of(counters));
+    GetProcessMemoryInfo(metrics_data.process_handle, *counters, counters.cb);
+    
+    return counters.PageFaultCount;
+}
+
 os_timer_frequency :: () -> s64 {
     frequency: s64 = ---;
     QueryPerformanceFrequency(*frequency);
@@ -127,6 +143,32 @@ read_os_timer :: () -> s64 {
     QueryPerformanceCounter(*value);
     return value;
 }
+
+Metrics_Data :: struct {
+    initialized    : bool;
+    process_handle : HANDLE;
+}
+
+// OS API
+kernel32 :: #system_library "kernel32";
+psapi    :: #system_library "psapi";
+OpenProcess                :: (dwDesiredAccess: DWORD, bInheritHandle: BOOL, dwProcessId: DWORD)        -> HANDLE #foreign kernel32;
+GetProcessMemoryInfo       :: (Process: HANDLE, ppsmemCounters: *PROCESS_MEMORY_COUNTERS_EX, cb: DWORD) -> BOOL   #foreign psapi;
+PROCESS_MEMORY_COUNTERS_EX :: struct {
+    cb                         : DWORD;
+    PageFaultCount             : DWORD ;
+    PeakWorkingSetSize         : SIZE_T;
+    WorkingSetSize             : SIZE_T;
+    QuotaPeakPagedPoolUsage    : SIZE_T;
+    QuotaPagedPoolUsage        : SIZE_T;
+    QuotaPeakNonPagedPoolUsage : SIZE_T;
+    QuotaNonPagedPoolUsage     : SIZE_T;
+    PagefileUsage              : SIZE_T;
+    PeakPagefileUsage          : SIZE_T;
+    PrivateUsage               : SIZE_T;
+}
+PROCESS_QUERY_INFORMATION  : DWORD : 0x0400;
+PROCESS_VM_READ            : DWORD : 0x0010;
 
 } else { // OS != .WINDOWS
 
@@ -188,6 +230,8 @@ new_hook_index :: () -> int #expand {
 //
 // Internal Data
 //
+metrics_data: Metrics_Data;
+
           MAX_PROFILER_HOOKS :: 64;
 #no_reset CURRENT_HOOK_INDEX :=  0; // index 0 is reserved
 
