@@ -31,8 +31,8 @@ Repetition_Value :: union ($T := u64) {
         Byte_Count;
     }
 
-    elements : [3]T;
-    struct {
+    elements : [size_of(type_of(named)) / size_of(T)]T;
+    using named : struct {
         test_count  : T;
         cpu_time    : T;
         page_faults : T;
@@ -83,7 +83,7 @@ is_testing :: (using tester: *Tester) -> bool {
                 accum.test_count = 1;
 
                 for *total.elements {
-                    it += accum.elements[it_index];
+                    it.* += accum.elements[it_index];
                 }
 
                 if max.cpu_time < accum.cpu_time then max = accum;
@@ -115,11 +115,13 @@ is_testing :: (using tester: *Tester) -> bool {
 }
 begin_time :: (using tester: *Tester) {
     open_block_count += 1;
-    accumulated_this_test.cpu_time -= read_cpu_timer();
+    accumulated_this_test.cpu_time    -= read_cpu_timer();
+    accumulated_this_test.page_faults -= read_os_page_fault_count();
 }
 end_time :: (using tester: *Tester) {
     close_block_count += 1;
-    accumulated_this_test.cpu_time += read_cpu_timer();
+    accumulated_this_test.cpu_time    += read_cpu_timer();
+    accumulated_this_test.page_faults += read_os_page_fault_count();
 }
 
 add_processed_bytes :: (using tester: *Tester, bytes: u64) {
@@ -145,8 +147,13 @@ print_time :: (label: string, value_u64: Repetition_Value, cpu_timer_frequency: 
         if value_u64.byte_count {
             GiB :: 1024.0 * 1024.0 * 1024.0;
             best_bandwidth := v.byte_count / (GiB * seconds);
-            print(" %GiB/s", best_bandwidth);
+            print("; %GiB/s", best_bandwidth);
         }
+    }
+
+    if value_u64.page_faults {
+        page_size := v.byte_count / v.page_faults;
+        print("; % PFs (% KiB)", value_u64.page_faults, FormatFloat.{value = page_size / 1000.0, trailing_width = 3});
     }
 }
 

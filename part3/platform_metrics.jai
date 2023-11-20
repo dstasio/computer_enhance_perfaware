@@ -125,10 +125,12 @@ initialize_os_metrics :: () {
 }
 
 read_os_page_fault_count :: () -> u64 {
+    assert(metrics_data.process_handle != null);
+
     counters : PROCESS_MEMORY_COUNTERS_EX;
-    counters.cb = size_of(type_of(counters));
-    GetProcessMemoryInfo(metrics_data.process_handle, *counters, counters.cb);
-    
+    counters.cb = size_of(PROCESS_MEMORY_COUNTERS_EX);
+    success := GetProcessMemoryInfo(metrics_data.process_handle, *counters, counters.cb);
+
     return counters.PageFaultCount;
 }
 

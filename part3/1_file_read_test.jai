@@ -2,6 +2,7 @@
 
 main :: () {
     cpu_timer_freq := estimate_cpu_frequency(500);
+    initialize_os_metrics();
 
     testfile : struct {
         name := "testfile";
@@ -13,7 +14,7 @@ main :: () {
         print("Test file '%' was not found.\n", testfile.name);
     }
 
-    #if 0 { // read_entire_file
+    { // read_entire_file
         print("--- read_entire_file ---\n");
         tester: Tester;
         new_test_wave(*tester, xx testfile.size, cpu_timer_freq, 10);
@@ -30,7 +31,6 @@ main :: () {
         }
     }
 
-    while true {
     { // file_read
         print("--- file_read ---\n");
         tester: Tester;
@@ -62,10 +62,10 @@ main :: () {
 
     }
 
-    { // file_read
+    { // file_read (loop alloc)
         print("--- file_read (loop alloc) ---\n");
         tester: Tester;
-        new_test_wave(*tester, xx testfile.size, cpu_timer_freq, 10);
+        new_test_wave(*tester, xx testfile.size, cpu_timer_freq, 1);
 
         while is_testing(*tester) {
             buffer := alloc(testfile.size);
@@ -89,7 +89,6 @@ main :: () {
             file_close(*file);
             free(buffer);
         }
-    }
     }
 }
 
