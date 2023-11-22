@@ -125,7 +125,7 @@ initialize_os_metrics :: () {
 }
 
 read_os_page_fault_count :: () -> u64 {
-    assert(metrics_data.process_handle != null);
+    assert(metrics_data.initialized);
 
     counters : PROCESS_MEMORY_COUNTERS_EX;
     counters.cb = size_of(PROCESS_MEMORY_COUNTERS_EX);
