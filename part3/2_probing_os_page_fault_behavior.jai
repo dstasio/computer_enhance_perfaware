@@ -8,6 +8,9 @@ Type :: enum {
 TYPE       :: Type.Forward;
 SKIP_WRITE :: 1024;
 SKIP_IDLE  :: 512;
+INSPECT_ADDRESSES :: false;
+
+#assert(!INSPECT_ADDRESSES || TYPE == .Forward);
 
 main :: () {
     args := get_command_line_arguments();
@@ -31,7 +34,31 @@ main :: () {
 
     allocation_size := page_size * page_count;
 
-    print("Page Count, Touch Count, Fault Count, Extra Faults\n");
+    Decomposed_Pointer :: struct {
+        table_4_index  : u16;
+        table_3_index  : u16;
+        table_2_index  : u16;
+        table_1_index  : u16;
+        physical_offset: u16;
+    }
+    decompose_ptr :: inline (ptr: *void) -> Decomposed_Pointer {
+        using result: Decomposed_Pointer;
+        p := cast(u64) ptr;
+
+        physical_offset = xx ((p >>  0) & 0xFFF);
+        table_1_index   = xx ((p >> 12) & 0x1FF);
+        table_2_index   = xx ((p >> 21) & 0x1FF);
+        table_3_index   = xx ((p >> 30) & 0x1FF);
+        table_4_index   = xx ((p >> 39) & 0x1FF);
+
+        return result;
+    }
+
+    #if INSPECT_ADDRESSES
+        print("Mem Table 4 idx, Mem Table 3 idx, Mem Table 2 idx, Mem Table 1 idx, Mem physical offset, Touch Count, Fault Count, Extra Faults\n");
+    else
+        print("Touch Count, Fault Count, Extra Faults\n");
+        
     #if TYPE == .Forward { // forwards linear touch
         for page_touch_count: 0..page_count-1 {
             memory := VirtualAlloc(xx 0, xx allocation_size, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
@@ -50,7 +77,18 @@ main :: () {
 
             fault_count := end_fault_count - start_fault_count;
 
-            print("%, %, %, %,\n", page_count, page_touch_count, fault_count, fault_count - (xx page_touch_count));
+            #if INSPECT_ADDRESSES {
+                using page_ptr := decompose_ptr(buffer.data + buffer.count);
+
+                BASE :: 2;
+                print("%, %, %, %, %,  %, %, %,\n", FormatInt.{value = table_4_index, base = BASE},
+                    FormatInt.{value = table_3_index, base = BASE}, FormatInt.{value = table_2_index,   base = BASE},
+                    FormatInt.{value = table_1_index, base = BASE}, FormatInt.{value = physical_offset, base = BASE},
+                    page_touch_count, fault_count, fault_count - (xx page_touch_count));
+            }
+            else {
+                print("%, %, %,\n", page_touch_count, fault_count, fault_count - (xx page_touch_count));
+            }
         }
     }
     else #if TYPE == .Backward { // backwards linear touch
