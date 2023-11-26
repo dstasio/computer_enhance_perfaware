@@ -9,12 +9,6 @@ main :: () {
     buffer := allocate_buffer(BUFFER_SIZE);
 
     { // loop assignment
-        loop :: (buffer: *u8, buffer_count: int) #c_call {
-            for 0..buffer_count-1 {
-                buffer[it] = cast,no_check(u8)it;
-            }
-        }
-
         print("--- loop assignment ---\n");
         tester: Tester;
         new_test_wave(*tester, xx buffer.count, cpu_timer_freq, 10);
@@ -28,6 +22,13 @@ main :: () {
         }
     }
 }
+
+loop :: no_inline (buffer: *u8, buffer_count: int) #c_call {
+    for 0..buffer_count-1 {
+        buffer[it] = cast,no_check(u8)it;
+    }
+}
+
 
 allocate_buffer :: (size: int) -> []u8 {
     buffer: []u8;
@@ -59,7 +60,7 @@ optimize :: () {
     options.output_executable_name = "3_asm_experimentation_optimized";
     options.output_type            = .EXECUTABLE;
 
-    set_optimization(*options, .OPTIMIZED, true);
+    set_optimization(*options, .OPTIMIZED_SMALL, true);
 
     w := compiler_create_workspace();
     set_build_options(options, w);
