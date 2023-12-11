@@ -4,9 +4,6 @@ BUFFER_SIZE :: 256*1024*1024;
 
 Loop_Routine :: #type (buffer: *u8, buffer_count: int) -> void #c_call;
 
-//loop_routines :: Loop_Routine.[ asm_jump_loop,   asm_jump_on_2_loop,  /*  asm_1x3nop_loop,   asm_3x1nop_loop,   asm_9x1nop_loop,   asm_18x1nop_loop, */];
-//loop_names    ::       string.["asm_jump_loop", "asm_jump_on_2_loop", /* "asm_1x3nop_loop", "asm_3x1nop_loop", "asm_9x1nop_loop", "asm_18x1nop_loop",*/];
-
 main :: () {
     cpu_timer_freq := estimate_cpu_frequency(500);
     initialize_os_metrics();
@@ -21,7 +18,9 @@ main :: () {
     //exec_loop("asm_18x1nop_loop");
 
     //exec_loop("asm_empty_loop");
-    exec_loop("asm_jump_on_2_loop");
+    //exec_loop("asm_jump_on_2_loop");
+    exec_loop("asm_jump_on_hit_loop_empty");
+    //exec_loop("asm_jump_on_hit_loop");
 }
 
 exec_loop :: ($proc: string) #expand {
