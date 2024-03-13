@@ -261,7 +261,7 @@ Profiler_Mark :: struct {
 remove_whitespace :: (str: string) -> string {
     adjusted: string;
     adjusted.count = str.count;
-    adjusted.data  = alloc(adjusted.count, temp);
+    adjusted.data  = alloc(adjusted.count,, allocator = temp);
 
     for 0..(str.count - 1) {
         adjusted[it] = ifx str[it] != #char " " else #char "_";
