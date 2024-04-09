@@ -43,6 +43,13 @@ main :: () {
     }
 
     #if 1 {
+        exec_loop("write_x1");
+        exec_loop("write_x2");
+        exec_loop("write_x3");
+        exec_loop("write_x4");
+    }
+
+    #if 0 {
         exec_loop("read_1x2");
         exec_loop("read_8x2");
     }

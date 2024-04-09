@@ -22,6 +22,12 @@ global read_x4
 global read_1x2
 global read_8x2
 
+global write_x1
+global write_x2
+global write_x3
+global write_x4
+
+
 ;
 ; rcx: buffer pointer
 ; rdx: buffer size
@@ -85,6 +91,44 @@ align 64
     mov rax, [rcx]
     mov rax, [rcx]
     sub rdx, 2
+    jg .loop
+    ret
+
+write_x1:
+align 64
+.loop:
+    mov [rcx], rax
+    sub rdx, 1
+    jg .loop
+    ret
+
+write_x2:
+align 64
+.loop:
+    mov [rcx], rax
+    mov [rcx], rax
+    sub rdx, 2
+    jg .loop
+    ret
+
+write_x3:
+align 64
+.loop:
+    mov [rcx], rax
+    mov [rcx], rax
+    mov [rcx], rax
+    sub rdx, 3
+    jg .loop
+    ret
+
+write_x4:
+align 64
+.loop:
+    mov [rcx], rax
+    mov [rcx], rax
+    mov [rcx], rax
+    mov [rcx], rax
+    sub rdx, 4
     jg .loop
     ret
 
