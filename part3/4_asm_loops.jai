@@ -1,8 +1,10 @@
-// Compiler Version 0.1.088
+// Compiler Version 0.1.090
 
 #load "0_repetition_tester.jai";
 
-BUFFER_SIZE :: 256*1024*1024;
+KiB :: inline (b: int) -> int { return 1024 *     b ; }
+MiB :: inline (b: int) -> int { return 1024 * KiB(b); }
+GiB :: inline (b: int) -> int { return 1024 * MiB(b); }
 
 Loop_Routine :: #type (buffer: *u8, buffer_count: int) -> void #c_call;
 
@@ -12,7 +14,74 @@ main :: () {
 
     print("Estimated cpu frequency: %\n", cpu_timer_freq);
 
-    buffer := allocate_buffer(BUFFER_SIZE);
+    //execution_tests(cpu_timer_freq);
+
+    cache_tests(cpu_timer_freq);
+}
+
+cache_tests :: (cpu_timer_freq : u64) {
+    buffer := allocate_buffer(GiB(1));
+
+    MAX :: cast,no_check(u64)(-1);
+
+    exec_loop :: (mask: u64, $proc: string = "read_memory_2x32") #expand {
+        #insert #run tprint("% :: (buffer: *u8, buffer_count: int, subaddress_mask: u64) -> void #foreign asm_routines", proc);
+
+        size : int = ifx mask > cast(u64)buffer.count then buffer.count else xx (mask + 1);
+        size_f := cast(float64) size;
+        unit := "B";
+
+             if size >= GiB(1) { size_f /= GiB(1); unit = "GiB"; }
+        else if size >= MiB(1) { size_f /= MiB(1); unit = "MiB"; }
+        else if size >= KiB(1) { size_f /= KiB(1); unit = "KiB"; }
+
+        print("\n--- Reading % % ---\n", size_f, unit);
+        tester: Tester;
+        new_test_wave(*tester, xx `buffer.count, `cpu_timer_freq, 10);
+
+        while is_testing(*tester) {
+            begin_time(*tester);
+            #insert #run tprint("%(`buffer.data, `buffer.count, mask);", proc);
+            end_time(*tester);
+
+            add_processed_bytes(*tester, xx `buffer.count);
+        }
+    }
+
+    exec_loop(0);
+    exec_loop(cast,no_check(u64)(-1));
+    //exec_loop(#run KiB(  4) - 1);
+    //exec_loop(#run KiB( 16) - 1);
+    exec_loop(#run KiB( 32) - 1);
+    exec_loop(#run KiB( 64) - 1);
+    exec_loop(#run KiB(256) - 1);
+    exec_loop(#run KiB(512) - 1);
+    exec_loop(#run MiB( 8) - 1);
+    exec_loop(#run MiB(16) - 1);
+    //exec_loop(#run MiB( 20) - 1);
+    //exec_loop(#run MiB(100) - 1);
+    //exec_loop(#run MiB(160) - 1);
+    //exec_loop(#run MiB(200) - 1);
+}
+
+execution_tests :: (cpu_timer_freq : u64) {
+    exec_loop :: ($proc: string) #expand {
+        #insert #run tprint("% :: (buffer: *u8, buffer_count: int) -> void #foreign asm_routines", proc);
+
+        print("\n--- % ---\n", proc);
+        tester: Tester;
+        new_test_wave(*tester, xx `buffer.count, `cpu_timer_freq, 10);
+
+        while is_testing(*tester) {
+            begin_time(*tester);
+            #insert #run tprint("%(`buffer.data, `buffer.count);", proc);
+            end_time(*tester);
+
+            add_processed_bytes(*tester, xx `buffer.count);
+        }
+    }
+
+    buffer := allocate_buffer(MiB(256));
 
     #if 0 {
         exec_loop( "asm_1x3nop_loop");
@@ -43,9 +112,9 @@ main :: () {
     }
 
     #if 1 {
-        exec_loop("read_simd_4x2");
-        exec_loop("read_simd_8x2");
-        exec_loop("read_simd_16x2");
+        //exec_loop("read_simd_4x2");
+        //exec_loop("read_simd_8x2");
+        //exec_loop("read_simd_16x2");
         exec_loop("read_simd_32x2");
     }
 
@@ -59,22 +128,6 @@ main :: () {
     #if 0 {
         exec_loop("read_1x2");
         exec_loop("read_8x2");
-    }
-}
-
-exec_loop :: ($proc: string) #expand {
-    #insert #run tprint("% :: (buffer: *u8, buffer_count: int) -> void #foreign asm_routines", proc);
-
-    print("\n--- % ---\n", proc);
-    tester: Tester;
-    new_test_wave(*tester, xx `buffer.count, `cpu_timer_freq, 10);
-
-    while is_testing(*tester) {
-        begin_time(*tester);
-        #insert #run tprint("%(`buffer.data, `buffer.count);", proc);
-        end_time(*tester);
-
-        add_processed_bytes(*tester, xx `buffer.count);
     }
 }
 

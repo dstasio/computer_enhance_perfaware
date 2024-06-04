@@ -15,6 +15,12 @@ global asm_3x1nop_loop
 global asm_9x1nop_loop
 global asm_18x1nop_loop
 
+;
+; Execution ports tests
+;   (buffer: *u8, buffer_size: int) -> void
+;    rcx: buffer pointer
+;    rdx: buffer size
+; ---------------------------
 global read_x1
 global read_x2
 global read_x3
@@ -32,11 +38,30 @@ global write_x2
 global write_x3
 global write_x4
 
+;
+; Cache tests
+;   (buffer: *u8, buffer_size: int, subaddress_mask: u64) -> void
+;    rcx: buffer pointer
+;    rdx: buffer size
+;     r8: subaddress mask
+; ---------------------------
+global read_memory_2x32
 
-;
-; rcx: buffer pointer
-; rdx: buffer size
-;
+read_memory_2x32:
+    xor r10, r10 ; r10: offset into memory
+align 64
+.loop:
+    lea r11, [rcx + r10]
+    vmovdqu ymm0, [r11]
+    vmovdqu ymm0, [r11 + 32]
+
+    add r10, 64
+    and r10, r8
+
+    sub rdx, 64
+    jg .loop
+    ret
+
 
 section .text
 
