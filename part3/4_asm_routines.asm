@@ -22,6 +22,11 @@ global read_x4
 global read_1x2
 global read_8x2
 
+global read_simd_4x2
+global read_simd_8x2
+global read_simd_16x2
+global read_simd_32x2
+
 global write_x1
 global write_x2
 global write_x3
@@ -93,6 +98,45 @@ align 64
     sub rdx, 2
     jg .loop
     ret
+
+; SIMD reads
+
+read_simd_4x2:
+align 64
+.loop:
+    mov r8d, [rcx]
+    mov r8d, [rcx + 4]
+    sub rdx, 8
+    jg .loop
+    ret
+
+read_simd_8x2:
+align 64
+.loop:
+    mov r8, [rcx]
+    mov r8, [rcx + 8]
+    sub rdx, 16
+    jg .loop
+    ret
+
+read_simd_16x2:
+align 64
+.loop:
+    vmovdqu xmm0, [rcx]
+    vmovdqu xmm1, [rcx + 16]
+    sub rdx, 32
+    jg .loop
+    ret
+
+read_simd_32x2:
+align 64
+.loop:
+    vmovdqu ymm0, [rcx]
+    vmovdqu ymm1, [rcx + 32]
+    sub rdx, 64
+    jg .loop
+    ret
+
 
 write_x1:
 align 64

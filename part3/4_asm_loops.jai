@@ -43,6 +43,13 @@ main :: () {
     }
 
     #if 1 {
+        exec_loop("read_simd_4x2");
+        exec_loop("read_simd_8x2");
+        exec_loop("read_simd_16x2");
+        exec_loop("read_simd_32x2");
+    }
+
+    #if 0 {
         exec_loop("write_x1");
         exec_loop("write_x2");
         exec_loop("write_x3");
