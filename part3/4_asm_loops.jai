@@ -24,7 +24,7 @@ cache_tests :: (cpu_timer_freq : u64) {
 
     MAX :: cast,no_check(u64)(-1);
 
-    exec_loop :: (mask: u64, $proc: string = "read_memory_2x32") #expand {
+    exec_loop :: (mask: u64, $proc: string = "read_memory_32x8") #expand {
         #insert #run tprint("% :: (buffer: *u8, buffer_count: int, subaddress_mask: u64) -> void #foreign asm_routines", proc);
 
         size : int = ifx mask > cast(u64)buffer.count then buffer.count else xx (mask + 1);
@@ -62,6 +62,8 @@ cache_tests :: (cpu_timer_freq : u64) {
     //exec_loop(#run MiB(100) - 1);
     //exec_loop(#run MiB(160) - 1);
     //exec_loop(#run MiB(200) - 1);
+
+    
 }
 
 execution_tests :: (cpu_timer_freq : u64) {

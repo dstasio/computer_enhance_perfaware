@@ -45,9 +45,10 @@ global write_x4
 ;    rdx: buffer size
 ;     r8: subaddress mask
 ; ---------------------------
-global read_memory_2x32
+global read_memory_32x2
+global read_memory_32x8
 
-read_memory_2x32:
+read_memory_32x2:
     xor r10, r10 ; r10: offset into memory
 align 64
 .loop:
@@ -59,6 +60,29 @@ align 64
     and r10, r8
 
     sub rdx, 64
+    jg .loop
+    ret
+
+read_memory_32x8:
+    xor r10, r10 ; r10: offset into memory
+    mov r11, rcx
+align 64
+.loop:
+    vmovdqu ymm0, [r11]
+    vmovdqu ymm0, [r11 + 32]
+    vmovdqu ymm0, [r11 + 64]
+    vmovdqu ymm0, [r11 + 96]
+
+    vmovdqu ymm0, [r11 + 128]
+    vmovdqu ymm0, [r11 + 160]
+    vmovdqu ymm0, [r11 + 192]
+    vmovdqu ymm0, [r11 + 224]
+
+    add r10, 0x100 ; 256
+    and r10, r8
+    lea r11, [rcx + r10]
+
+    sub rdx, 256
     jg .loop
     ret
 
