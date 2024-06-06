@@ -17,10 +17,10 @@ main :: () {
     //execution_tests(cpu_timer_freq);
 
     //cache_tests_power_of_2(cpu_timer_freq);
-    cache_tests_any(cpu_timer_freq);
+    cache_tests_any(cpu_timer_freq, 64);
 }
 
-cache_tests_any :: (cpu_timer_freq : u64) {
+cache_tests_any :: (cpu_timer_freq : u64, $SAMPLE_COUNT : int) {
     buffer := allocate_buffer(GiB(1));
 
     MAX :: cast,no_check(u64)(-1);
@@ -35,42 +35,91 @@ cache_tests_any :: (cpu_timer_freq : u64) {
         else if block_size >= MiB(1) { size_f /= MiB(1); unit = "MiB"; }
         else if block_size >= KiB(1) { size_f /= KiB(1); unit = "KiB"; }
 
-        print("\n--- %: Reading % % x%---\n", exec_index, size_f, unit, repeat_count);
+        print("\n--- %: Reading % % x% ---\n", exec_index, size_f, unit, repeat_count);
         tester: Tester;
-        new_test_wave(*tester, xx `buffer.count, `cpu_timer_freq, 10);
+
+        real_tested_bytes : u64 = xx (block_size * repeat_count);
+        new_test_wave(*tester, real_tested_bytes, `cpu_timer_freq, 5);
 
         while is_testing(*tester) {
             begin_time(*tester);
             #insert #run tprint("%(`buffer.data, xx block_size, repeat_count);", proc);
             end_time(*tester);
 
-            add_processed_bytes(*tester, xx (block_size * repeat_count));
+            add_processed_bytes(*tester, real_tested_bytes);
         }
 
         return tester.results;
     }
 
-    csv_builder : String_Builder;
-    append(*csv_builder, "Region Size;GiB/s\n");
+    Sample :: struct {
+        block_size: int;
+        speed: float64;
+    };
+
+    samples: [..]Sample;
+    array_reserve(*samples, SAMPLE_COUNT);
 
     // 2^10 - 2^26
 
-    //for 0..64 {
-        block_size := 1024; 
+    for total_sample_index: 0..SAMPLE_COUNT-1 {
+        using sample : Sample;
+
+        if samples.count == {
+            case 0; block_size = 1 << 10;
+            case 1; block_size = 1 << 26;
+            case; {
+                max_delta : float64 = 0;
+                max_delta_index : int;
+                for 1..(samples.count - 1) {
+                    a := samples[it].speed;
+                    b := samples[it - 1].speed;
+                    delta := abs(b - a);
+
+                    if delta < (0.1 * a) continue;
+                    if delta > max_delta {
+                        max_delta = delta;
+                        max_delta_index = it;
+                    }
+                }
+                assert(max_delta_index > 0);
+
+                block_size = (samples[max_delta_index].block_size + samples[max_delta_index - 1].block_size) / 2;
+            }
+        }
+
         print("delta: %\n", buffer.count);
-        result := exec_loop(0, block_size, buffer.count / block_size).min;
-        r := buffer.count / block_size;
+        result := exec_loop(total_sample_index, block_size, buffer.count / block_size).min;
 
         duration_seconds := cast(float64)result.cpu_time / cpu_timer_freq;
-        speed := cast(float64)result.byte_count / duration_seconds;
+        speed  = cast(float64)result.byte_count / duration_seconds;
         speed /= cast(float64)GiB(1);
 
+        if samples.count < 2 then array_add(*samples, sample);
+        else {
+            for 0..(samples.count - 1) {
+                if samples[it].block_size > block_size {
+                    array_insert_at(*samples, sample, it);
+                    break;
+                }
+            }
+        }
+    }
+
+    csv_builder : String_Builder;
+    append(*csv_builder, "Region Size;GiB/s\n");
+
+    for sample: samples {
+        using sample;
         append(*csv_builder, tprint("%;%\n", block_size, speed));
         reset_temporary_storage();
-    //}
+    }
 
     print("\n\n");
-    print(builder_to_string(*csv_builder));
+    csv := builder_to_string(*csv_builder);
+    write_entire_file("samples.csv", csv);
+
+    if samples.count <= 80 then print(csv);
     print("\n");
 }
 
@@ -216,6 +265,8 @@ allocate_buffer :: (size: int) -> []u8 {
 }
 
 #import "Basic";
+#import "Math"; // for abs()
+#import "File";
 
 
 #run {
