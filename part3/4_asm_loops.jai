@@ -16,15 +16,70 @@ main :: () {
 
     //execution_tests(cpu_timer_freq);
 
-    cache_tests(cpu_timer_freq);
+    //cache_tests_power_of_2(cpu_timer_freq);
+    cache_tests_any(cpu_timer_freq);
 }
 
-cache_tests :: (cpu_timer_freq : u64) {
+cache_tests_any :: (cpu_timer_freq : u64) {
     buffer := allocate_buffer(GiB(1));
 
     MAX :: cast,no_check(u64)(-1);
 
-    exec_loop :: (mask: u64, $proc: string = "read_memory_32x8") #expand {
+    exec_loop :: (exec_index: int, block_size: int, repeat_count: int, $proc: string = "read_repeated_memory_block_32x8") -> Tester.Results #expand {
+        #insert #run tprint("% :: (buffer: *u8, block_size: u64, repeat_count: int) -> void #foreign asm_routines", proc);
+
+        size_f := cast(float64) block_size;
+        unit := "B";
+
+             if block_size >= GiB(1) { size_f /= GiB(1); unit = "GiB"; }
+        else if block_size >= MiB(1) { size_f /= MiB(1); unit = "MiB"; }
+        else if block_size >= KiB(1) { size_f /= KiB(1); unit = "KiB"; }
+
+        print("\n--- %: Reading % % x%---\n", exec_index, size_f, unit, repeat_count);
+        tester: Tester;
+        new_test_wave(*tester, xx `buffer.count, `cpu_timer_freq, 10);
+
+        while is_testing(*tester) {
+            begin_time(*tester);
+            #insert #run tprint("%(`buffer.data, xx block_size, repeat_count);", proc);
+            end_time(*tester);
+
+            add_processed_bytes(*tester, xx (block_size * repeat_count));
+        }
+
+        return tester.results;
+    }
+
+    csv_builder : String_Builder;
+    append(*csv_builder, "Region Size;GiB/s\n");
+
+    // 2^10 - 2^26
+
+    //for 0..64 {
+        block_size := 1024; 
+        print("delta: %\n", buffer.count);
+        result := exec_loop(0, block_size, buffer.count / block_size).min;
+        r := buffer.count / block_size;
+
+        duration_seconds := cast(float64)result.cpu_time / cpu_timer_freq;
+        speed := cast(float64)result.byte_count / duration_seconds;
+        speed /= cast(float64)GiB(1);
+
+        append(*csv_builder, tprint("%;%\n", block_size, speed));
+        reset_temporary_storage();
+    //}
+
+    print("\n\n");
+    print(builder_to_string(*csv_builder));
+    print("\n");
+}
+
+cache_tests_power_of_2 :: (cpu_timer_freq : u64) {
+    buffer := allocate_buffer(GiB(1));
+
+    MAX :: cast,no_check(u64)(-1);
+
+    exec_loop :: (mask: u64, $proc: string = "read_memory_32x8") -> Tester.Results #expand {
         #insert #run tprint("% :: (buffer: *u8, buffer_count: int, subaddress_mask: u64) -> void #foreign asm_routines", proc);
 
         size : int = ifx mask > cast(u64)buffer.count then buffer.count else xx (mask + 1);
@@ -46,24 +101,32 @@ cache_tests :: (cpu_timer_freq : u64) {
 
             add_processed_bytes(*tester, xx `buffer.count);
         }
+
+        return tester.results;
     }
 
-    exec_loop(0);
-    exec_loop(cast,no_check(u64)(-1));
-    //exec_loop(#run KiB(  4) - 1);
-    //exec_loop(#run KiB( 16) - 1);
-    exec_loop(#run KiB( 32) - 1);
-    exec_loop(#run KiB( 64) - 1);
-    exec_loop(#run KiB(256) - 1);
-    exec_loop(#run KiB(512) - 1);
-    exec_loop(#run MiB( 8) - 1);
-    exec_loop(#run MiB(16) - 1);
-    //exec_loop(#run MiB( 20) - 1);
-    //exec_loop(#run MiB(100) - 1);
-    //exec_loop(#run MiB(160) - 1);
-    //exec_loop(#run MiB(200) - 1);
+    csv_builder : String_Builder;
+    append(*csv_builder, "Region Size;GiB/s\n");
 
-    
+    mask_bit_index := 10;
+    for 0..29 {
+        mask : u64 = xx ((1 << mask_bit_index) - 1);
+        result := exec_loop(mask).min;
+        mask_bit_index += 1;
+
+        duration_seconds := cast(float64)result.cpu_time / cpu_timer_freq;
+        speed := cast(float64)result.byte_count / duration_seconds;
+        speed /= cast(float64)GiB(1);
+
+        append(*csv_builder, tprint("%;%\n", mask + 1, speed));
+        reset_temporary_storage();
+
+        if (mask + 1) >= xx buffer.count break;
+    }
+
+    print("\n\n");
+    print(builder_to_string(*csv_builder));
+    print("\n");
 }
 
 execution_tests :: (cpu_timer_freq : u64) {

@@ -44,9 +44,19 @@ global write_x4
 ;    rcx: buffer pointer
 ;    rdx: buffer size
 ;     r8: subaddress mask
+;     r9: 
 ; ---------------------------
 global read_memory_32x2
 global read_memory_32x8
+
+;    rcx: buffer pointer
+;    rdx: repeat count
+;     r8: block size
+global read_repeated_memory_block_32x8
+
+;
+; Implementations
+section .text
 
 read_memory_32x2:
     xor r10, r10 ; r10: offset into memory
@@ -65,7 +75,7 @@ align 64
 
 read_memory_32x8:
     xor r10, r10 ; r10: offset into memory
-    mov r11, rcx
+    mov r11, rcx ; r11: memory base pointer + offset, recomputed after each iteration
 align 64
 .loop:
     vmovdqu ymm0, [r11]
@@ -86,8 +96,40 @@ align 64
     jg .loop
     ret
 
+;    rcx: buffer pointer
+;    rdx: block size
+;     r8: repeat count
+read_repeated_memory_block_32x8:
+    xor rax, rax   ; rax: repeat index
+align 64
+.outer_loop:
+    xor r10, r10   ; r10: offset into memory
+    mov r11, rcx   ; r11: memory base pointer + offset, recomputed after each iteration
+    mov  r9, rdx   ;  r9: remaining byetes to be read in memory block
+.inner_loop:
+    vmovdqu ymm0, [r11]
+    vmovdqu ymm0, [r11 + 32]
+    vmovdqu ymm0, [r11 + 64]
+    vmovdqu ymm0, [r11 + 96]
 
-section .text
+    vmovdqu ymm0, [r11 + 128]
+    vmovdqu ymm0, [r11 + 160]
+    vmovdqu ymm0, [r11 + 192]
+    vmovdqu ymm0, [r11 + 224]
+
+    add r10, 0x100 ; 256
+    lea r11, [rcx + r10]
+
+    sub r9, 256
+    jg .inner_loop
+
+    inc rax
+    cmp rax, r8
+    jl .outer_loop
+
+    ret
+
+
 
 ;
 ; Execution Ports tests
